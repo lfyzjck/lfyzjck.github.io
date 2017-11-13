@@ -209,14 +209,15 @@ LOCATION &#39;/user/mytables/mydata&#39;;
 
 <h5 id="toc_6">File Formats</h5>
 
-<p>Hadoop 上的文件可以以不同格式存储，Hive 默认的存储格式是一种叫 TextFormat 的格式，用类似 CSV 的纯文本表示数据。Format 可以在创建表的时候指定：<br/>
-<code><br/>
-CREATE TABLE dest1(key INT, value STRING)<br/>
-  STORED AS<br/>
-    INPUTFORMAT &#39;org.apache.hadoop.mapred.SequenceFileInputFormat&#39;<br/>
-    OUTPUTFORMAT &#39;org.apache.hadoop.mapred.SequenceFileOutputFormat&#39;;<br/>
-</code><br/>
-存储格式可以根据自己的需求扩展，选择合适的存储格式有利于提高性能，比如面向列存储的 ParquetFile 和 ORCFile，可以减少读取的数据量，ORCFile 甚至可以做一些与计算，来满足 Push Down 的需求。</p>
+<p>Hadoop 上的文件可以以不同格式存储，Hive 默认的存储格式是一种叫 TextFormat 的格式，用类似 CSV 的纯文本表示数据。Format 可以在创建表的时候指定：</p>
+
+<pre><code>CREATE TABLE dest1(key INT, value STRING)
+  STORED AS
+    INPUTFORMAT &#39;org.apache.hadoop.mapred.SequenceFileInputFormat&#39;
+    OUTPUTFORMAT &#39;org.apache.hadoop.mapred.SequenceFileOutputFormat&#39;;
+</code></pre>
+
+<p>存储格式可以根据自己的需求扩展，选择合适的存储格式有利于提高性能，比如面向列存储的 ParquetFile 和 ORCFile，可以减少读取的数据量，ORCFile 甚至可以做一些与计算，来满足 Push Down 的需求。</p>
 
 <h5 id="toc_7">系统架构和组件</h5>
 
