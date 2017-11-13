@@ -1,0 +1,346 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>  
+	  
+  	elixir-overview - Redmagic
+  	
+	</title>
+
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link href="atom.xml" rel="alternate" title="Redmagic" type="application/atom+xml">
+
+	<link href="asset/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<link href="asset/stylesheets/font-awesome.min.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<script src="asset/javascripts/jquery.min.js"></script>
+	<script src="asset/highlightjs/highlight.pack.js"></script>
+	<link href="asset/highlightjs/styles/solarized_dark.css" media="screen, projection" rel="stylesheet" type="text/css">
+<script>hljs.initHighlightingOnLoad();</script>
+
+	<!--[if lt IE 9]><script src="asset/javascripts/html5.js"></script><![endif]-->
+	<!-- <link href='http://fonts.googleapis.com/css?family=Nunito:400,300,700' rel='stylesheet' type='text/css'> -->
+	<style type="text/css">
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 300;
+  src: local('Nunito-Light'), url(asset/font/1TiHc9yag0wq3lDO9cw0voX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Nunito-Regular'), url(asset/font/6TbRXKWJjpj6V2v_WyRbMX-_kf6ByYO6CLYdB4HQE-Y.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  src: local('Nunito-Bold'), url(asset/font/TttUCfJ272GBgSKaOaD7KoX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+	</style>
+	
+	<style type="text/css">
+	.container .left-col{ opacity: 1;}
+	#pagenavi a{ font-size: 1.3em;}
+	#pagenavi .next:before{ top: 3px;}
+	#pagenavi .prev:before{ top: 3px;}
+	.container .mid-col .mid-col-container #content .archives .title{ font-size: 1.5em;}
+	.container .mid-col .mid-col-container #content article{ padding: 15px 0px;}
+	#header .subtitle {
+		line-height: 1.2em;
+		padding-top: 8px;
+	}
+	article pre{ background: none; border: none; padding: 0;}
+	article .entry-content{text-align: left;}
+	.share-comment{ padding: 25px 0px; clear: both;}
+	hr{ margin: 20px 0px;border: 0; border-top:solid 1px #ddd;}
+	</style>
+  
+
+</head>
+
+
+<body>
+	<div class="container">
+		<div class="left-col">
+			<div class="intrude-less">
+				<header id="header" class="inner">
+				 
+					
+					<h1><a href="index.html">Redmagic</a></h1>
+					<p class="subtitle">FFFF</p>
+					<nav id="main-nav">
+						<ul class="main">
+						
+						  <li id=""><a target="self" href="index.html">Home</a></li>
+						
+						  <li id=""><a target="_self" href="archives.html">Archives</a></li>
+						
+						</ul>
+					</nav>
+
+					<nav id="sub-nav">
+						<div class="social">
+
+
+
+
+
+
+
+
+
+
+
+
+
+								
+
+								<a class="rss" href="atom.xml" title="RSS">RSS</a>
+							
+						</div>
+					</nav>
+				</header>				
+			</div>
+		</div>	
+		<div class="mid-col">
+			<div class="mid-col-container"> <div id="content" class="inner">
+
+	<article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+		<h1 class="title" itemprop="name">elixir-overview</h1>
+		<div class="entry-content" itemprop="articleBody">
+			<h1 id="toc_0"></h1>
+
+<h1 id="toc_1">初窥 Elixir</h1>
+
+<p>Elixir 是基于 Erlang VM 开发一个新语言，继承了 Erlang 的很多有点，在保持和 Erlang ByteCode 兼容的提前下提供了非常简洁易懂的语法。单从语法层面可能和 Ruby 比较像，不过仔细看还是和 Erlang 有很多一致的地方，如果你不习惯 Erlang 奇怪的语法(其实看过 Prolog 的语法以后就不觉得 Erlang 奇怪了)，但是又想享受 Erlang/OTP 带来的各种好处，Elixir 是不错的选择。</p>
+
+<p>Elixir 可以调用 Erlang 的标准库，如果基本不用担心 第三方库不足的问题， Erlang 几十年的积累在这里放着呢，难怪 Joe Armstrong 大叔也对 Elixir 赞不绝口。</p>
+
+<h2 id="toc_2">类型</h2>
+
+<p>用 <code>iex</code> 来启动的 Elixir Shell，可以看到一个很像 Erlang Shell 的东西：</p>
+
+<pre><code>$ iex
+Erlang/OTP 17 [erts-6.1] [source] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false] [dtrace]
+
+Interactive Elixir (1.0.3) - press Ctrl+C to exit (type h() ENTER for help)
+iex&gt;
+</code></pre>
+
+<p>Elixir 支持 Erlang 大部分的类型，integer, float, atom, list, tuple, binary, keywords, map ...</p>
+
+<pre><code>iex&gt; 1
+1
+iex&gt; &quot;foobar&quot;
+&quot;foobar&quot;
+iex&gt; &#39;foobar&#39;
+&#39;foobar&#39;
+iex&gt; :foo
+:foo
+iex&gt; [1, 2, 3]
+[1, 2, 3]
+iex&gt; {:foo, :bar}
+{:foo, :bar}
+iex&gt; &lt;&lt;104, 101, 108, 108, 111, 0&gt;&gt;
+&lt;&lt;104, 101, 108, 108, 111, 0&gt;&gt;
+iex&gt; [{:foo, 1}, {:bar, 2}]
+[foo: 1, bar: 2]
+iex&gt; %{:ok =&gt; 1, :fail =&gt; 2}
+%{fail: 2, ok: 1}
+</code></pre>
+
+<p><code>&quot;foobar&quot;</code> 和 <code>&#39;foobar&#39;</code> 是不同的类型，前者是 string，后者是是一个 charlist</p>
+
+<pre><code>iex&gt; is_binary &quot;foobar&quot;
+true
+iex&gt; is_list &#39;foobar&#39;
+true
+</code></pre>
+
+<p>Elixir 引入了一个很像 Map 的类型叫 Keyword，但其实 Keyword  就是一个二元的 <code>tuple</code> 列表，不过要求 <code>tuple</code> 的第一个元素是 <code>atom</code>。Keyword 支持类似 Map 的访问方式</p>
+
+<pre><code>iex&gt; keyword1 = [{:foo, 1}, {:bar, 2}]
+[foo: 1, bar: 2]
+iex&gt; keyword1[:foo]
+1
+iex&gt; keyword1[:bar]
+2
+</code></pre>
+
+<p>Map 通过 <code>%{ key1 =&gt; value1, key2 =&gt; value2 ...}</code> 的语法来创建，访问 Map 中的值有 3 种方式：</p>
+
+<pre><code>iex&gt; map = %{:a =&gt; 1, 2 =&gt; :b}
+%{2 =&gt; :b, :a =&gt; 1}
+iex&gt; map[:a]
+1
+iex&gt; map[2]
+:b
+</code></pre>
+
+<p>不论 Map 还是 Keyword lists 都实现了 Dict 的访问协议，我们可以可以用 Dict 模块同时处理这 2 种数据结构。</p>
+
+<pre><code>iex&gt; map
+%{2 =&gt; :b, :a =&gt; 1}
+iex&gt; Dict.get(map, :a)
+1
+iex&gt; Dict.put_new(map, :c, 3)
+%{2 =&gt; :b, :a =&gt; 1, :c =&gt; 3}
+</code></pre>
+
+<h2 id="toc_3">模式匹配和递归</h2>
+
+<p>Elixir 和 Erlang 一样，实现了模式匹配。模式匹配的强大不用多说，在解析数据的时候可以少写很多很多的 if...else... </p>
+
+<pre><code>iex&gt; {:ok, msg} = {:ok, &quot;success&quot;}
+{:ok, &quot;success&quot;}
+iex&gt; %{:a =&gt; x} = %{:a =&gt; 1, :b =&gt; 2}
+%{a: 1, b: 2}
+iex&gt; %{:a =&gt; x} = %{:b =&gt; 2}
+** (MatchError) no match of right hand side value: %{b: 2}
+</code></pre>
+
+<p>Elixir 里的函数必须定义在 Module 里，让我们实现一个计算斐波那契数列的模块。</p>
+
+<pre><code>defmodule Math do
+  @doc&quot;&quot;&quot;
+  Calculate Fibonacci sequence value
+  &quot;&quot;&quot;
+  def fab(1) do 1 end
+  def fab(2) do 1 end
+  def fab(n) do
+    fab(n-1) + fab(n-2)
+  end
+
+  @doc &quot;&quot;&quot;
+  Calculates the sum of a number list
+  &quot;&quot;&quot;
+  def sum(list) do sum(list, 0) end
+  def sum([], sum) do sum end
+  def sum([h|t], sum) do sum(t, sum + h) end
+  
+end
+</code></pre>
+
+<h2 id="toc_4">Enumerables &amp; streams &amp; Comprehensions</h2>
+
+<p><code>Enum</code> 和 <code>Stream</code> 最大的不同是 <code>Stream</code> 是惰性求值，类似 Python 里的 generator，只有需要计算的时候真正计算。</p>
+
+<pre><code>iex&gt; Enum.map(1..10, fn x -&gt; x * x end)
+[1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+iex&gt; Enum.reduce(1..10, 0, &amp;(&amp;1+&amp;2))
+55
+iex&gt; 1..10 |&gt; Enum.map(&amp;(&amp;1*&amp;1)) |&gt; Enum.reduce(&amp;(&amp;1+&amp;2))
+385
+iex&gt; 1..100 |&gt; Stream.map(&amp;(&amp;1*&amp;1)) |&gt; Stream.filter(&amp;(rem(&amp;1, 2) != 0)) |&gt; Enum.sum
+166650
+</code></pre>
+
+<p>Elixir 也提供了列表推倒的机制，利用 for 的 filter 机制，还能方便实现一些功能。</p>
+
+<pre><code>iex&gt; for n &lt;- 1..4, do: n * n
+[1, 4, 9, 16]
+</code></pre>
+
+<p>找到 n 以内满足 <code>a^2 + b^2 = c^2</code> 的 <code>{a, b, c}</code> 元组：</p>
+
+<pre><code>defmodule Triple do
+  def pythagorean(n) when n &gt; 0 do
+    for a &lt;- 1..n,
+        b &lt;- 1..n,
+        c &lt;- 1..n,
+        a + b + c &lt;= n,
+        a*a + b*b == c*c,
+        do: {a, b, c}
+  end
+end
+</code></pre>
+
+<h2 id="toc_5">异常处理</h2>
+
+<p>Elixir 提供了 3 种错误处理机制：</p>
+
+<ul>
+<li>Errors &amp; Exceptions</li>
+<li>Throws</li>
+<li>Exits</li>
+</ul>
+
+<pre><code>iex&gt; try do
+...&gt;   raise &quot;oops&quot;
+...&gt; rescue
+...&gt;   RuntimeError -&gt; &quot;Error!&quot;
+...&gt; end
+&quot;Error!&quot;
+
+iex&gt; spawn_link fn -&gt; exit(1) end
+#PID&lt;0.56.0&gt;
+** (EXIT from #PID&lt;0.56.0&gt;) 1
+</code></pre>
+
+<h2 id="toc_6">调用 Erlang 代码</h2>
+
+<pre><code>iex&gt; angle_45_deg = :math.pi() * 45.0 / 180.0
+iex&gt; :math.sin(angle_45_deg)
+0.7071067811865475
+</code></pre>
+
+<h2 id="toc_7">Process</h2>
+
+<p>Elixir 借助 ErlangVM 实现了 Actor 模型，进程和进程之间仅通过消息通信，每个 Actor 都有一个 Mailbox ，消息总是被拷贝到 MailBox 中然后等待进程处理。这里的 Process 和操作系统的 Process 不能等同，它比操作系统的 Process 要轻量很多，可能很轻松在单机上开启几十万的 Process。</p>
+
+		</div>
+	</article>
+	<div class="share-comment">
+	 <div id="disqus_thread></div>
+<script>
+
+/**
+ *  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+ *  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+    this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+    this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+    var d = document, s = d.createElement('script');
+    s.src = '//lfyzjck.disqus.com/embed.js';
+    s.setAttribute('data-timestamp', +new Date());
+    (d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+	  
+
+	  
+
+	</div>
+</div>        </div>
+			<footer id="footer" class="inner">Copyright &copy; 2014
+Powered by <a target="_blank" href="http://www.mweb.im">MWeb</a> &nbsp;&nbsp; 
+Theme by <a href="http://shashankmehta.in/archive/2012/greyshade.html">Shashank Mehta</a>
+      </footer>
+		</div>
+	</div>
+
+  
+    
+<script src="asset/chart/all-min.js"></script><script type="text/javascript">$(function(){    var mwebii=0;    var mwebChartEleId = 'mweb-chart-ele-';    $('pre>code').each(function(){        mwebii++;        var eleiid = mwebChartEleId+mwebii;        if($(this).hasClass('language-sequence')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = Diagram.parse($(this).text());            diagram.drawSVG(eleiid,{theme: 'simple'});        }else if($(this).hasClass('language-flow')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = flowchart.parse($(this).text());            diagram.drawSVG(eleiid);        }    });});</script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({TeX: { equationNumbers: { autoNumber: "AMS" } }});</script>
+
+</body>
+</html>

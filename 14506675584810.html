@@ -1,0 +1,237 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>  
+	  
+  	Golang编程风格不完全指南 - Redmagic
+  	
+	</title>
+
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link href="atom.xml" rel="alternate" title="Redmagic" type="application/atom+xml">
+
+	<link href="asset/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<link href="asset/stylesheets/font-awesome.min.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<script src="asset/javascripts/jquery.min.js"></script>
+	<script src="asset/highlightjs/highlight.pack.js"></script>
+	<link href="asset/highlightjs/styles/solarized_dark.css" media="screen, projection" rel="stylesheet" type="text/css">
+<script>hljs.initHighlightingOnLoad();</script>
+
+	<!--[if lt IE 9]><script src="asset/javascripts/html5.js"></script><![endif]-->
+	<!-- <link href='http://fonts.googleapis.com/css?family=Nunito:400,300,700' rel='stylesheet' type='text/css'> -->
+	<style type="text/css">
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 300;
+  src: local('Nunito-Light'), url(asset/font/1TiHc9yag0wq3lDO9cw0voX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Nunito-Regular'), url(asset/font/6TbRXKWJjpj6V2v_WyRbMX-_kf6ByYO6CLYdB4HQE-Y.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  src: local('Nunito-Bold'), url(asset/font/TttUCfJ272GBgSKaOaD7KoX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+	</style>
+	
+	<style type="text/css">
+	.container .left-col{ opacity: 1;}
+	#pagenavi a{ font-size: 1.3em;}
+	#pagenavi .next:before{ top: 3px;}
+	#pagenavi .prev:before{ top: 3px;}
+	.container .mid-col .mid-col-container #content .archives .title{ font-size: 1.5em;}
+	.container .mid-col .mid-col-container #content article{ padding: 15px 0px;}
+	#header .subtitle {
+		line-height: 1.2em;
+		padding-top: 8px;
+	}
+	article pre{ background: none; border: none; padding: 0;}
+	article .entry-content{text-align: left;}
+	.share-comment{ padding: 25px 0px; clear: both;}
+	hr{ margin: 20px 0px;border: 0; border-top:solid 1px #ddd;}
+	</style>
+  
+
+</head>
+
+
+<body>
+	<div class="container">
+		<div class="left-col">
+			<div class="intrude-less">
+				<header id="header" class="inner">
+				 
+					
+					<h1><a href="index.html">Redmagic</a></h1>
+					<p class="subtitle">FFFF</p>
+					<nav id="main-nav">
+						<ul class="main">
+						
+						  <li id=""><a target="self" href="index.html">Home</a></li>
+						
+						  <li id=""><a target="_self" href="archives.html">Archives</a></li>
+						
+						</ul>
+					</nav>
+
+					<nav id="sub-nav">
+						<div class="social">
+
+
+
+
+
+
+
+
+
+
+
+
+
+								
+
+								<a class="rss" href="atom.xml" title="RSS">RSS</a>
+							
+						</div>
+					</nav>
+				</header>				
+			</div>
+		</div>	
+		<div class="mid-col">
+			<div class="mid-col-container"> <div id="content" class="inner">
+
+	<article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+		<h1 class="title" itemprop="name">Golang编程风格不完全指南</h1>
+		<div class="entry-content" itemprop="articleBody">
+			<h1 id="toc_0"></h1>
+
+<h2 id="toc_1">语言规范</h2>
+
+<h4 id="toc_2">简介</h4>
+
+<p>学习Go规范的最好办法就是看Go的源码，官方是这么说的</p>
+
+<h4 id="toc_3">格式化</h4>
+
+<p>格式这个东西，对大部分语言来说都挺重要的，不过Go有个很牛逼的工具叫<code>gofmt</code>，可以从<code>package</code>级别对代码的格式进行格式化，所以这种脏活就交给工具来做吧。</p>
+
+<h4 id="toc_4">注释</h4>
+
+<p>Go提供了C-style的/* */的块注释，和C++-style的// 行内注释</p>
+
+<p>对于每个<code>package</code>，都应当提供响应的注释，如果这个<code>package</code>提供的功能很简单，那么用行内注释写一些简单的说明也是可以的。不必在块注释的每行前都加上<code>*</code>号，注释内的字体可能不是等宽字体，所以也不要依赖空格来对齐，<code>godoc</code>会帮你完成这些事情。</p>
+
+<p>在一个<code>package</code>中，每个被<code>export</code>的方法，都应该包含注释.注释最好以方法名开头，然后用最简单的一句话概括这个函数的用途。</p>
+
+<h4 id="toc_5">命名</h4>
+
+<p>Go推荐采用类似Java的驼峰式的命名，而不是用下划线。</p>
+
+<h5 id="toc_6">Package names</h5>
+
+<p>包名应该尽量简洁且容易记忆，处于习惯一般采用全部小写字母。每一个使用你提供的<code>Package</code>的用户，都需要提前<code>import</code>，所以你也不用特地的检测名字的冲突，万一不行还可以在本地使用别的名字代替。</p>
+
+<h5 id="toc_7">Getter&amp;Setter</h5>
+
+<p><code>GetAttr</code>就命名成<code>Attr()</code><br/>
+<code>SetAttr</code>还是保持<code>SetAttr()</code><br/>
+然后注意首字母大写，确保这个函数是被<code>export</code>的</p>
+
+<h5 id="toc_8">Interface</h5>
+
+<p>一般就是加个<code>er</code>的后缀，比如Reader, Writer, Notifer</p>
+
+<h4 id="toc_9">循环结构</h4>
+
+<p>Go的循环类似于C，稍有不同。Go统一了<code>for</code>和<code>while</code>，而且没有<code>do-while</code></p>
+
+<pre><code>// Like a C for
+for init; condition; post { }
+
+// Like a C while
+for condition { }
+
+// Like a C for(;;)
+for { }
+</code></pre>
+
+<p>如果要遍历的对象是<code>array</code>, <code>slice</code>, <code>string</code>, <code>map</code>或者从channel读取数据，可以使用<code>range</code>关键字。类似于Python的<code>for ... in ...</code>。在<code>range</code>循环里，可以单独访问key&amp;value，或者一起访问。</p>
+
+<pre><code>// 只访问key
+for key := range m {
+    if key.expired() {
+        delete(m, key)
+    }
+}
+// 只访问value
+sum := 0
+for _, value := range array {
+    sum += value
+}
+// 两个都要用
+for key, value := range oldMap {
+    newMap[key] = value
+}
+</code></pre>
+
+		</div>
+	</article>
+	<div class="share-comment">
+	 <div id="disqus_thread></div>
+<script>
+
+/**
+ *  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+ *  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+    this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+    this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+    var d = document, s = d.createElement('script');
+    s.src = '//lfyzjck.disqus.com/embed.js';
+    s.setAttribute('data-timestamp', +new Date());
+    (d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+	  
+
+	  
+
+	</div>
+</div>        </div>
+			<footer id="footer" class="inner">Copyright &copy; 2014
+Powered by <a target="_blank" href="http://www.mweb.im">MWeb</a> &nbsp;&nbsp; 
+Theme by <a href="http://shashankmehta.in/archive/2012/greyshade.html">Shashank Mehta</a>
+      </footer>
+		</div>
+	</div>
+
+  
+    
+<script src="asset/chart/all-min.js"></script><script type="text/javascript">$(function(){    var mwebii=0;    var mwebChartEleId = 'mweb-chart-ele-';    $('pre>code').each(function(){        mwebii++;        var eleiid = mwebChartEleId+mwebii;        if($(this).hasClass('language-sequence')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = Diagram.parse($(this).text());            diagram.drawSVG(eleiid,{theme: 'simple'});        }else if($(this).hasClass('language-flow')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = flowchart.parse($(this).text());            diagram.drawSVG(eleiid);        }    });});</script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({TeX: { equationNumbers: { autoNumber: "AMS" } }});</script>
+
+</body>
+</html>

@@ -1,0 +1,240 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>  
+	  
+  	Golang依赖管理实践 - Redmagic
+  	
+	</title>
+
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link href="atom.xml" rel="alternate" title="Redmagic" type="application/atom+xml">
+
+	<link href="asset/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<link href="asset/stylesheets/font-awesome.min.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<script src="asset/javascripts/jquery.min.js"></script>
+	<script src="asset/highlightjs/highlight.pack.js"></script>
+	<link href="asset/highlightjs/styles/solarized_dark.css" media="screen, projection" rel="stylesheet" type="text/css">
+<script>hljs.initHighlightingOnLoad();</script>
+
+	<!--[if lt IE 9]><script src="asset/javascripts/html5.js"></script><![endif]-->
+	<!-- <link href='http://fonts.googleapis.com/css?family=Nunito:400,300,700' rel='stylesheet' type='text/css'> -->
+	<style type="text/css">
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 300;
+  src: local('Nunito-Light'), url(asset/font/1TiHc9yag0wq3lDO9cw0voX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Nunito-Regular'), url(asset/font/6TbRXKWJjpj6V2v_WyRbMX-_kf6ByYO6CLYdB4HQE-Y.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  src: local('Nunito-Bold'), url(asset/font/TttUCfJ272GBgSKaOaD7KoX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+	</style>
+	
+	<style type="text/css">
+	.container .left-col{ opacity: 1;}
+	#pagenavi a{ font-size: 1.3em;}
+	#pagenavi .next:before{ top: 3px;}
+	#pagenavi .prev:before{ top: 3px;}
+	.container .mid-col .mid-col-container #content .archives .title{ font-size: 1.5em;}
+	.container .mid-col .mid-col-container #content article{ padding: 15px 0px;}
+	#header .subtitle {
+		line-height: 1.2em;
+		padding-top: 8px;
+	}
+	article pre{ background: none; border: none; padding: 0;}
+	article .entry-content{text-align: left;}
+	.share-comment{ padding: 25px 0px; clear: both;}
+	hr{ margin: 20px 0px;border: 0; border-top:solid 1px #ddd;}
+	</style>
+  
+
+</head>
+
+
+<body>
+	<div class="container">
+		<div class="left-col">
+			<div class="intrude-less">
+				<header id="header" class="inner">
+				 
+					
+					<h1><a href="index.html">Redmagic</a></h1>
+					<p class="subtitle">FFFF</p>
+					<nav id="main-nav">
+						<ul class="main">
+						
+						  <li id=""><a target="self" href="index.html">Home</a></li>
+						
+						  <li id=""><a target="_self" href="archives.html">Archives</a></li>
+						
+						</ul>
+					</nav>
+
+					<nav id="sub-nav">
+						<div class="social">
+
+
+
+
+
+
+
+
+
+
+
+
+
+								
+
+								<a class="rss" href="atom.xml" title="RSS">RSS</a>
+							
+						</div>
+					</nav>
+				</header>				
+			</div>
+		</div>	
+		<div class="mid-col">
+			<div class="mid-col-container"> <div id="content" class="inner">
+
+	<article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+		<h1 class="title" itemprop="name">Golang依赖管理实践</h1>
+		<div class="entry-content" itemprop="articleBody">
+			<h1 id="toc_0"></h1>
+
+<h2 id="toc_1">引子</h2>
+
+<p>这篇文章似乎拖得有点久了，好在现在在写了。Golang 的风潮尚未过去，大红大紫的 Docker 进一步提高了人们对这门语言的期待，但是当你把 Golang 用在线上生产环境的时候，就会面临一个比较严重问题：依赖管理。</p>
+
+<p>对于依赖管理，Java 有 <code>Maven</code>，Python 有 <code>pip</code>，Nodejs 也有 <code>npm</code>，Golang 自己本身作为一种编译型的语言，依赖管理只能靠官方提供的 <code>go-get</code> 工具，大部分情况下，这个工具对我们在开发时还是相当友好的。</p>
+
+<h2 id="toc_2">go get 简介</h2>
+
+<p><code>go-get</code>是 Golang 自带的一个依赖管理工具，他可以从远程下载你需要的包，但是注意Golang并没有统一的仓库，所以你传给 <code>go get</code> 的参数其实是一个URL。对于 Github, Google Code, Bitbucket 这样的网站，<code>go get</code> 可以自动解析到 repo 地址，典型的 <code>go get</code> 大概会包含下面几个步骤：</p>
+
+<ul>
+<li>fetch repo 到本地的 <code>$GOPATH/src</code> 下, 此过程会依赖 repo 对应版本管理软件，比如你要安装一个 Github 上的包，那么你本地必须安装了 git</li>
+<li>执行<code>go install</code>命令，对源码进行编译并把编译好的二进制文件拷贝到<code>$GOPATH/pkg</code>下面</li>
+<li>如果不是 Github 这样第三方托管网站，比如公司内的 Gitlab 系统，<code>go get</code>会解析 html 返回中名为<code>go-import</code>的<code>meta</code>标签，找到 repo 的类型和地址，然后重复上面的事情</li>
+</ul>
+
+<p>不过这样的实现会有一点问题，假如我们用了类似Gitlab的系统，在公司内部的很多 repo 都是 Internal 的，<code>go get</code>无法直接访问到 repo 页面，自然谈不上解析 <code>go-import</code> ，<code>go get</code> 还没只能到可以自动登录，所以一定是失败的，我们依赖的 Package 还是无法自动安装......</p>
+
+<h2 id="toc_3">生产环境的挑战和 Godep 工具</h2>
+
+<p>不同于本地开发可以想到什么依赖就安装一下，少了东西可以再补，生产环境通常需要一套可靠的自动化流程来完成软件极其依赖的构建，比如像 <code>Maven</code> 和 <code>buildout</code> 这样的工具，既可以做到自动构建，又可以做到环境隔离。</p>
+
+<p><code>go get</code> 工具能用但是我们经常会忘记在 go get install 列表里写上我们的依赖，上线的时候才发现：&quot;啊，我这个包手贱忘记写进去了，怎么办！&quot;</p>
+
+<p>程序员的这种需求不可能不被照顾到，所以就有了 <a href="title" title="Godep">Godep</a> 这个工具，<a href="https://github.com/tools/godep">Godep</a> 使用还是很简单的，常用的命令就2个：</p>
+
+<ul>
+<li><code>godep save</code>, 扫描你的代码中的<code>import</code>，把所有依赖的包都写入一个 json 文件</li>
+<li><code>godep restore</code>, 读取上一步生成的 json 文件，调用 <code>go get</code> 安装每个依赖</li>
+</ul>
+
+<p>所以很多行的<code>go get</code>命令变成了一行命令，妈妈再也不用担心我上学出门忘记背书包了。</p>
+
+<p>但是文章写到这里，似乎还有几个问题没解决:</p>
+
+<ul>
+<li>三方库可以从 Github 或者 Bitbucket 这样的网站获取，公司内部的二方库该如何解决呢？我们的 Gitlab 仓库就是私有的怎么办？</li>
+<li>Google Code 分明在天朝无法通过正常途径访问，Github 也经常抽风，你这工具是要闹咋样</li>
+</ul>
+
+<p>对，线上的服务器无法和我们自己开发时的网络环境等同，所以不论是 Golang 自带 <code>go get</code> 还是 <a href="https://github.com/tools/godep">Godep</a> 都有不完美的地方，所以还是本地大法好。</p>
+
+<h2 id="toc_4">Vendor方式管理的依赖</h2>
+
+<p>这种方式就是来解决前面说的 2 个问题的，基本思路就是在项目中新建一个名为 <code>vendor</code> 的目录，把依赖放在该目录下，实践中我们一般会采用 <code>git submodule</code> 来做这件事情：</p>
+
+<pre><code class="language-bash">cd YOUR_PROJECT
+mkdir vendor
+git submodule add git://repo.git vendor/
+</code></pre>
+
+<p>然后在项目发布构建时：</p>
+
+<pre><code class="language-bash">cd YOUR_PROJECT
+git submodule update --init
+</code></pre>
+
+<p>好处是不需要把依赖包的代码直接放入项目源代码中，并且可以实现自动化的构建。坏处也是有的，你必须修改代码中 <code>import</code> 的地址。</p>
+
+<p>实践中，一般推荐 <a href="https://github.com/tools/godep">Godep</a> 和 <code>vendor</code> 结合的方式来管理项目中的依赖。</p>
+
+<h2 id="toc_5">结论</h2>
+
+<p>上面已经写过了。</p>
+
+<h2 id="toc_6">参考</h2>
+
+<ol>
+<li><a href="http://golang.org/doc/code.html#remote">http://golang.org/doc/code.html#remote</a></li>
+<li><a href="http://peter.bourgon.org/go-in-production/">http://peter.bourgon.org/go-in-production/</a></li>
+</ol>
+
+		</div>
+	</article>
+	<div class="share-comment">
+	 <div id="disqus_thread></div>
+<script>
+
+/**
+ *  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+ *  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+    this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+    this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+    var d = document, s = d.createElement('script');
+    s.src = '//lfyzjck.disqus.com/embed.js';
+    s.setAttribute('data-timestamp', +new Date());
+    (d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+	  
+
+	  
+
+	</div>
+</div>        </div>
+			<footer id="footer" class="inner">Copyright &copy; 2014
+Powered by <a target="_blank" href="http://www.mweb.im">MWeb</a> &nbsp;&nbsp; 
+Theme by <a href="http://shashankmehta.in/archive/2012/greyshade.html">Shashank Mehta</a>
+      </footer>
+		</div>
+	</div>
+
+  
+    
+<script src="asset/chart/all-min.js"></script><script type="text/javascript">$(function(){    var mwebii=0;    var mwebChartEleId = 'mweb-chart-ele-';    $('pre>code').each(function(){        mwebii++;        var eleiid = mwebChartEleId+mwebii;        if($(this).hasClass('language-sequence')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = Diagram.parse($(this).text());            diagram.drawSVG(eleiid,{theme: 'simple'});        }else if($(this).hasClass('language-flow')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = flowchart.parse($(this).text());            diagram.drawSVG(eleiid);        }    });});</script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({TeX: { equationNumbers: { autoNumber: "AMS" } }});</script>
+
+</body>
+</html>
