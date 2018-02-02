@@ -122,6 +122,136 @@
 	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
 		<div class="meta">
 			<div class="date">
+				<time datetime="2018-02-02T15:40:38+08:00" itemprop="datePublished">2018/2/2</time>
+			</div>
+			
+			 
+			
+		</div>
+		<h1 class="title" itemprop="name"><a href="15175572389238.html" itemprop="url">
+		使用 BigTop 打包 Hadoop 全家桶</a></h1>
+		<div class="entry-content" itemprop="articleBody">
+			
+			<p>使用 Hadoop 软件好像难免会自己改下代码做些定制，或者在部分组件的版本选择上激进，其他的版本( 比如 HDFS)  上保守。最近在公司升级 Hive 到 2.1.1 ，也对代码做了一些调整确保对业务的兼容性，之前公司使用的是 <code>hive-1.2.2-cdh-5.5.0</code> 。cdh 的发布节奏太慢跟不上社区的节奏，而且截止到现在，社区版本的 BUG 数量和稳定性都可以接受而不是必须选择商业公司给我们提供的发行版。</p>
+
+<p>公司用的服务器是 Debian 7/8，为了方便的把定制过的 Hive 部署到服务器，需要将 Hive 打包成 deb，一直没找到特别好的打包方法。要做到 Cloudera 那样规范的 deb 非常繁琐，要处理启动脚本，环境变量，配置文件的 alternatives 等等。顺着这个思路找到了 Cloudera 官方的打包工具 <a href="https://github.com/cloudera/cdh-package">cdh-package</a> ，但是这个库已经太长时间没有维护了，里面依赖的版本信息非常老旧，而且自己测试也没运行成功。但是 cdh-package 是基于 <a href="https://github.com/apache/bigtop">BigTop</a> 的，BigTop 本身的维护还不错。</p>
+
+<p>Bigtop 非常有野心，它的主要目标就是构建一个 Apache Hadoop 生态系统的包和交互式测试的社区。这个包括对各类不同级别工程进行测试(包，平台，运行时间，升级等...)，它由社区以关注系统作为一个整体开发而来。BigTop 官方除了介绍怎么安装之外没有任何使用文档，不过研究以后发现还算简单，不需要太多的说明。</p>
+
+<h3 id="toc_0">准备 BigTop 环境</h3>
+
+<p>可以根据官方的说明来安装，我这里是直接从 Github 拉了代码：</p>
+
+<pre><code class="language-bash">git clone https://github.com/apache/bigtop.git
+cd bigtop
+git checkout release-1.2.1
+./gradlew
+</code></pre>
+
+<p>然后我们可以运行 <code>./gradlew tasks</code> 看下 BigTop 给我们提供的命令，命令遵循下面的格式 <code>./gradlew &lt;package&gt;-&lt;dist&gt;</code> ：</p>
+
+<pre><code class="language-bash">$ ./gradlew tasks
+# hide some output
+hive-clean - Removing hive component build and output directories
+hive-deb - Building DEB for hive artifacts
+hive-download - Download hive artifacts
+hive-help - List of available tasks for hive
+hive-info - Info about hive component build
+hive-pkg - Invoking a native binary packaging target deb
+hive-relnotes - Preparing release notes for hive. No yet implemented!!!
+hive-rpm - Building RPM for hive artifacts
+hive-sdeb - Building SDEB for hive artifacts
+hive-spkg - Invoking a native binary packaging target sdeb
+hive-srpm - Building SRPM for hive artifacts
+hive-tar - Preparing a tarball for hive artifacts
+hive-version - Show version of hive component
+</code></pre>
+
+<p>然后编辑 <code>bigtop.bom</code> 将依赖的版本改成自己需要的版本，注意 BigTop 这里会优先使用 bigtop.bom 中定义的版本号覆盖源代码的版本号。</p>
+
+<pre><code class="language-json">&#39;hive&#39; {
+      name    = &#39;hive&#39;
+      relNotes = &#39;Apache Hive&#39;
+      version { base = &#39;1.2.1&#39;; pkg = base; release = 1 }
+      tarball { destination = &quot;apache-${name}-${version.base}-src.tar.gz&quot;
+                source      = destination }
+      url     { download_path = &quot;/$name/$name-${version.base}/&quot;
+                site = &quot;${apache.APACHE_MIRROR}/${download_path}&quot;
+                archive = &quot;${apache.APACHE_ARCHIVE}/${download_path}&quot; }
+    }
+</code></pre>
+
+<p>下面将介绍如何用 BigTop 打包 Hive</p>
+
+<h3 id="toc_1">用 BigTop 打包 Hive</h3>
+
+<p>我们的目标是将一份修改过的 Hive 代码打包成 deb 包分发到集群，首先在编辑机器上准备一些必要的依赖：</p>
+
+<pre><code class="language-bash">sudo apt-get update
+sudo apt-get install devscripts
+sudo apt-get install dh-make
+</code></pre>
+
+<p>接下来准备 Hive 的代码，Bigtop 默认根据 bom 文件里指定的版本号从上游下载 Hive 的代码，解压然后编译。但是我们可以欺骗 Bigtop 把 src 包放在 <code>dl</code> 目录下欺骗脚本源代码已经下载</p>
+
+<pre><code class="language-bash">cd /path/to/hive
+mvn clean package -DskipTests -Pdist
+</code></pre>
+
+<p>构建后我们可以在 <code>packaging/target</code> 下面找到 hive 的 src 包，然后拷贝到 bigtop 目录下：</p>
+
+<pre><code>cp packaging/target/apache-hive-2.1.1-src.tar.gz /path/to/bigtop/dl/
+</code></pre>
+
+<p>然后就可以开始打包了：</p>
+
+<pre><code>./gradlew hive-deb
+</code></pre>
+
+<p>注意 BigTop 在它的仓库里包含了对 Hive 的几个 patch 文件，我这边测试的时候会导致编译失败，建议删除：</p>
+
+<pre><code>rm -f /bigtop-packages/src/common/hive/*
+</code></pre>
+
+<p>然后清理构建环境，重新打包：</p>
+
+<pre><code>./gradlew hive-clean
+./gradlew hive-deb
+</code></pre>
+
+<h3 id="toc_2">发布 deb 包</h3>
+
+<p>看看我们构建的结果，产生了很多 deb 包，这些包都需要上传到内部的 mirror</p>
+
+<pre><code>$ ls -l output/hive/
+total 138516
+-rw-r--r-- 1 ck ck 78645700 Feb  1 18:32 hive_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck   314946 Feb  1 18:33 hive_2.1.1-1_amd64.build
+-rw-r--r-- 1 ck ck     3461 Feb  1 18:32 hive_2.1.1-1_amd64.changes
+-rw-r--r-- 1 ck ck    12500 Feb  1 18:18 hive_2.1.1-1.debian.tar.xz
+-rw-r--r-- 1 ck ck     1227 Feb  1 18:18 hive_2.1.1-1.dsc
+-rw-r--r-- 1 ck ck     1829 Feb  1 18:18 hive_2.1.1-1_source.changes
+-rw-r--r-- 1 ck ck 20999949 Feb  1 18:18 hive_2.1.1.orig.tar.gz
+-rw-r--r-- 1 ck ck   107906 Feb  1 18:32 hive-hbase_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck   452862 Feb  1 18:32 hive-hcatalog_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3632 Feb  1 18:32 hive-hcatalog-server_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck 39029552 Feb  1 18:32 hive-jdbc_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3734 Feb  1 18:32 hive-metastore_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3738 Feb  1 18:32 hive-server2_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck  2068240 Feb  1 18:32 hive-webhcat_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3608 Feb  1 18:32 hive-webhcat-server_2.1.1-1_all.deb
+</code></pre>
+
+
+			
+			
+		</div>
+
+	</article>
+ 
+	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+		<div class="meta">
+			<div class="date">
 				<time datetime="2017-11-13T22:53:59+08:00" itemprop="datePublished">2017/11/13</time>
 			</div>
 			
@@ -727,97 +857,6 @@ iex&gt; :math.sin(angle_45_deg)
 <h2 id="toc_7">Process</h2>
 
 <p>Elixir 借助 ErlangVM 实现了 Actor 模型，进程和进程之间仅通过消息通信，每个 Actor 都有一个 Mailbox ，消息总是被拷贝到 MailBox 中然后等待进程处理。这里的 Process 和操作系统的 Process 不能等同，它比操作系统的 Process 要轻量很多，可能很轻松在单机上开启几十万的 Process。</p>
-
-
-			
-			
-		</div>
-
-	</article>
- 
-	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
-		<div class="meta">
-			<div class="date">
-				<time datetime="2015-12-21T11:12:38+08:00" itemprop="datePublished">2015/12/21</time>
-			</div>
-			
-			 
-			
-		</div>
-		<h1 class="title" itemprop="name"><a href="14506675584810.html" itemprop="url">
-		Golang编程风格不完全指南</a></h1>
-		<div class="entry-content" itemprop="articleBody">
-			
-			<h1 id="toc_0"></h1>
-
-<h2 id="toc_1">语言规范</h2>
-
-<h4 id="toc_2">简介</h4>
-
-<p>学习Go规范的最好办法就是看Go的源码，官方是这么说的</p>
-
-<h4 id="toc_3">格式化</h4>
-
-<p>格式这个东西，对大部分语言来说都挺重要的，不过Go有个很牛逼的工具叫<code>gofmt</code>，可以从<code>package</code>级别对代码的格式进行格式化，所以这种脏活就交给工具来做吧。</p>
-
-<h4 id="toc_4">注释</h4>
-
-<p>Go提供了C-style的/* */的块注释，和C++-style的// 行内注释</p>
-
-<p>对于每个<code>package</code>，都应当提供响应的注释，如果这个<code>package</code>提供的功能很简单，那么用行内注释写一些简单的说明也是可以的。不必在块注释的每行前都加上<code>*</code>号，注释内的字体可能不是等宽字体，所以也不要依赖空格来对齐，<code>godoc</code>会帮你完成这些事情。</p>
-
-<p>在一个<code>package</code>中，每个被<code>export</code>的方法，都应该包含注释.注释最好以方法名开头，然后用最简单的一句话概括这个函数的用途。</p>
-
-<h4 id="toc_5">命名</h4>
-
-<p>Go推荐采用类似Java的驼峰式的命名，而不是用下划线。</p>
-
-<h5 id="toc_6">Package names</h5>
-
-<p>包名应该尽量简洁且容易记忆，处于习惯一般采用全部小写字母。每一个使用你提供的<code>Package</code>的用户，都需要提前<code>import</code>，所以你也不用特地的检测名字的冲突，万一不行还可以在本地使用别的名字代替。</p>
-
-<h5 id="toc_7">Getter&amp;Setter</h5>
-
-<p><code>GetAttr</code>就命名成<code>Attr()</code><br/>
-<code>SetAttr</code>还是保持<code>SetAttr()</code><br/>
-然后注意首字母大写，确保这个函数是被<code>export</code>的</p>
-
-<h5 id="toc_8">Interface</h5>
-
-<p>一般就是加个<code>er</code>的后缀，比如Reader, Writer, Notifer</p>
-
-<h4 id="toc_9">循环结构</h4>
-
-<p>Go的循环类似于C，稍有不同。Go统一了<code>for</code>和<code>while</code>，而且没有<code>do-while</code></p>
-
-<pre><code>// Like a C for
-for init; condition; post { }
-
-// Like a C while
-for condition { }
-
-// Like a C for(;;)
-for { }
-</code></pre>
-
-<p>如果要遍历的对象是<code>array</code>, <code>slice</code>, <code>string</code>, <code>map</code>或者从channel读取数据，可以使用<code>range</code>关键字。类似于Python的<code>for ... in ...</code>。在<code>range</code>循环里，可以单独访问key&amp;value，或者一起访问。</p>
-
-<pre><code>// 只访问key
-for key := range m {
-    if key.expired() {
-        delete(m, key)
-    }
-}
-// 只访问value
-sum := 0
-for _, value := range array {
-    sum += value
-}
-// 两个都要用
-for key, value := range oldMap {
-    newMap[key] = value
-}
-</code></pre>
 
 
 			

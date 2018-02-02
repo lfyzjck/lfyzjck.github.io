@@ -128,6 +128,97 @@
 			 
 			
 		</div>
+		<h1 class="title" itemprop="name"><a href="14506675584810.html" itemprop="url">
+		Golang编程风格不完全指南</a></h1>
+		<div class="entry-content" itemprop="articleBody">
+			
+			<h1 id="toc_0"></h1>
+
+<h2 id="toc_1">语言规范</h2>
+
+<h4 id="toc_2">简介</h4>
+
+<p>学习Go规范的最好办法就是看Go的源码，官方是这么说的</p>
+
+<h4 id="toc_3">格式化</h4>
+
+<p>格式这个东西，对大部分语言来说都挺重要的，不过Go有个很牛逼的工具叫<code>gofmt</code>，可以从<code>package</code>级别对代码的格式进行格式化，所以这种脏活就交给工具来做吧。</p>
+
+<h4 id="toc_4">注释</h4>
+
+<p>Go提供了C-style的/* */的块注释，和C++-style的// 行内注释</p>
+
+<p>对于每个<code>package</code>，都应当提供响应的注释，如果这个<code>package</code>提供的功能很简单，那么用行内注释写一些简单的说明也是可以的。不必在块注释的每行前都加上<code>*</code>号，注释内的字体可能不是等宽字体，所以也不要依赖空格来对齐，<code>godoc</code>会帮你完成这些事情。</p>
+
+<p>在一个<code>package</code>中，每个被<code>export</code>的方法，都应该包含注释.注释最好以方法名开头，然后用最简单的一句话概括这个函数的用途。</p>
+
+<h4 id="toc_5">命名</h4>
+
+<p>Go推荐采用类似Java的驼峰式的命名，而不是用下划线。</p>
+
+<h5 id="toc_6">Package names</h5>
+
+<p>包名应该尽量简洁且容易记忆，处于习惯一般采用全部小写字母。每一个使用你提供的<code>Package</code>的用户，都需要提前<code>import</code>，所以你也不用特地的检测名字的冲突，万一不行还可以在本地使用别的名字代替。</p>
+
+<h5 id="toc_7">Getter&amp;Setter</h5>
+
+<p><code>GetAttr</code>就命名成<code>Attr()</code><br/>
+<code>SetAttr</code>还是保持<code>SetAttr()</code><br/>
+然后注意首字母大写，确保这个函数是被<code>export</code>的</p>
+
+<h5 id="toc_8">Interface</h5>
+
+<p>一般就是加个<code>er</code>的后缀，比如Reader, Writer, Notifer</p>
+
+<h4 id="toc_9">循环结构</h4>
+
+<p>Go的循环类似于C，稍有不同。Go统一了<code>for</code>和<code>while</code>，而且没有<code>do-while</code></p>
+
+<pre><code>// Like a C for
+for init; condition; post { }
+
+// Like a C while
+for condition { }
+
+// Like a C for(;;)
+for { }
+</code></pre>
+
+<p>如果要遍历的对象是<code>array</code>, <code>slice</code>, <code>string</code>, <code>map</code>或者从channel读取数据，可以使用<code>range</code>关键字。类似于Python的<code>for ... in ...</code>。在<code>range</code>循环里，可以单独访问key&amp;value，或者一起访问。</p>
+
+<pre><code>// 只访问key
+for key := range m {
+    if key.expired() {
+        delete(m, key)
+    }
+}
+// 只访问value
+sum := 0
+for _, value := range array {
+    sum += value
+}
+// 两个都要用
+for key, value := range oldMap {
+    newMap[key] = value
+}
+</code></pre>
+
+
+			
+			
+		</div>
+
+	</article>
+ 
+	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+		<div class="meta">
+			<div class="date">
+				<time datetime="2015-12-21T11:12:38+08:00" itemprop="datePublished">2015/12/21</time>
+			</div>
+			
+			 
+			
+		</div>
 		<h1 class="title" itemprop="name"><a href="14506675584846.html" itemprop="url">
 		Golang依赖管理实践</a></h1>
 		<div class="entry-content" itemprop="articleBody">
