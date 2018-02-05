@@ -192,31 +192,39 @@ sudo apt-get install devscripts
 sudo apt-get install dh-make
 </code></pre>
 
-<p>接下来准备 Hive 的代码，Bigtop 默认根据 bom 文件里指定的版本号从上游下载 Hive 的代码，解压然后编译。但是我们可以欺骗 Bigtop 把 src 包放在 <code>dl</code> 目录下欺骗脚本源代码已经下载</p>
+<p>接下来准备 Hive 的代码，Bigtop 默认根据 bom 文件里指定的版本号从上游下载 Hive 的代码，解压然后编译。但是由于我们要使用自己修改过的版本，可以修改 <code>bigtop.bom</code> 从内部 git 仓库下载代码。</p>
 
-<pre><code class="language-bash">cd /path/to/hive
-mvn clean package -DskipTests -Pdist
-</code></pre>
-
-<p>构建后我们可以在 <code>packaging/target</code> 下面找到 hive 的 src 包，然后拷贝到 bigtop 目录下：</p>
-
-<pre><code>cp packaging/target/apache-hive-2.1.1-src.tar.gz /path/to/bigtop/dl/
+<pre><code class="language-grovvy">  &#39;hive&#39; {
+      name    = &#39;hive&#39;
+      relNotes = &#39;Apache Hive&#39;
+      version { base = &#39;2.1.1&#39;; pkg = base; release = 1 }
+      tarball { destination = &quot;apache-${name}-${version.base}-src.tar.gz&quot;
+                source      = destination }
+      git     { repo = &quot;https://exmaple.com:hive/hive&quot;
+                ref = &quot;release-2.1.1&quot;
+                dir  = &quot;${name}-${version.base}&quot; }
+    }
 </code></pre>
 
 <p>然后就可以开始打包了：</p>
 
-<pre><code>./gradlew hive-deb
+<pre><code class="language-bash">./gradlew hive-deb
 </code></pre>
 
 <p>注意 BigTop 在它的仓库里包含了对 Hive 的几个 patch 文件，我这边测试的时候会导致编译失败，建议删除：</p>
 
-<pre><code>rm -f /bigtop-packages/src/common/hive/*
+<pre><code class="language-bash">rm -f /bigtop-packages/src/common/hive/*
 </code></pre>
 
 <p>然后清理构建环境，重新打包：</p>
 
-<pre><code>./gradlew hive-clean
+<pre><code class="language-bash">./gradlew hive-clean
 ./gradlew hive-deb
+</code></pre>
+
+<p>如果需要更新包，可以提升 Release number，默认是 1 ，这个 BigTop 在文档里没有提及：</p>
+
+<pre><code class="language-bash">BIGTOP_BUILD_STAMP=&lt;release&gt; ./gradlew hive-deb
 </code></pre>
 
 <h3 id="toc_2">发布 deb 包</h3>
