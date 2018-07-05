@@ -122,6 +122,287 @@
 	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
 		<div class="meta">
 			<div class="date">
+				<time datetime="2018-07-05T21:00:20+08:00" itemprop="datePublished">2018/7/5</time>
+			</div>
+			
+			 
+			
+		</div>
+		<h1 class="title" itemprop="name"><a href="15307956203332.html" itemprop="url">
+		Sqoop 使用指南</a></h1>
+		<div class="entry-content" itemprop="articleBody">
+			
+			<p>Sqoop 是一个数据同步工具，用于关系型数据库和各种大数据存储比如 Hive 之间的数据相互同步。Sqoop 因为它的使用便利得到了广泛使用。类似的工具还有阿里开源的 <a href="https://github.com/alibaba/DataX">DataX</a> 和其他商业工具。</p>
+
+<p><a href="http://sqoop.apache.org/docs/1.99.7/index.html">Sqoop 2.0</a> 主要解决 Sqoop 1.x 扩展难的问题，提出的 Server-Client 模型，具体用的不是特别多。本文主要介绍的还是 Sqoop 1.x，最新的 Sqoop 版本是 1.4.7</p>
+
+<h3 id="toc_0">安装</h3>
+
+<p>Sqoop 安装需要依赖 Hadoop 和 Hive，以 Debain 为例，安装 Sqoop 也比较简单。</p>
+
+<pre><code class="language-bash">apt-get install hadoop hive hive-hbase hive-hcatalog sqoop
+</code></pre>
+
+<p>除此之外，针对不同的数据源，需要不同的 JDBC Driver，这个是 Sqoop 默认没有自带的库，需要自行安装。比如 MySQL 的 Driver 是 <code>mysql-connector-java-5.1.13-bin.jar</code> ，确保 Jar 包在 Sqoop 的 classpath 内就行。</p>
+
+<h3 id="toc_1">数据源</h3>
+
+<p>Sqoop 支持非常多的数据源，理论上所有支持 JDBC 的数据源都可以作为 Sqoop 的数据源。最常见的场景还是从关系型数据（RDBMS）导入到 Hive, HBase 或者 HDFS。</p>
+
+<p>Sqoop 的扩展性没有想象中的那么好，但是因为大部分企业的数据仓库还是构建在传统的 Hive 和 HBase 之上的，Sqoop 还是可以满足 80% 的数据同步需求的。</p>
+
+<p>一个简单以 MySQL 作为上游数据源的同步：</p>
+
+<pre><code class="language-bash">sqoop import --connect jdbc:mysql://database.example.com/employees \
+  --username dbuser --password &quot;&quot; 
+</code></pre>
+
+<p>Sqoop 支持将数据同步到 HDFS 或者直接到 Hive：</p>
+
+<pre><code class="language-bash">sqoop import --connect jdbc:mysql://database.example.com/employees \
+  --username dbuser --password &quot;&quot; --table employees \
+  --hive-import --hive-overwrite \
+  --hive-database employees --hive-table employees
+</code></pre>
+
+<h3 id="toc_2">存储格式</h3>
+
+<p>存储格式主要是 Hive 的概念，但是对于数据同步来讲，格式的选择会影响同步数据，类型系统的兼容性等等，我们必须予以关注。参考下面的表格：</p>
+
+<table>
+<thead>
+<tr>
+<th></th>
+<th>压缩比</th>
+<th>预计算</th>
+<th>类型兼容性</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>TextFile</td>
+<td>无</td>
+<td>否</td>
+<td>一般</td>
+</tr>
+<tr>
+<td>SequenceFile</td>
+<td>中</td>
+<td>否</td>
+<td>一般</td>
+</tr>
+<tr>
+<td>Parquet</td>
+<td>高</td>
+<td>是（sqoop 依赖的版本 feature 不完整）</td>
+<td>好</td>
+</tr>
+<tr>
+<td>ORC</td>
+<td>高</td>
+<td>是</td>
+<td>好</td>
+</tr>
+</tbody>
+</table>
+
+<p>Hive 默认的存储格式是 TextFile，TextFile 类似一个 CSV 文件，使用不可见服务分割列，同步后的数据可读性比较好。但是因为所有数据都是按文本存储的，对于某些类型（比如 blob/bit ）无法支持。</p>
+
+<p>Parquet/ORC 都是列式存储格式，这里不多介绍。在生产环境中更倾向于选择 Parquet/ORC ，节省空间的同时在 Hive 上的查询速度也更快。</p>
+
+<p>同步为 Parquet 格式：</p>
+
+<pre><code class="language-bash">sqoop import --connect jdbc:mysql://database.example.com/employees \
+ --username dbuser --password &quot;&quot; --table employees \
+ --hive-import --hive-overwrite \
+ --hive-database employees --hive-table employees \
+ --as-parquetfile
+</code></pre>
+
+<p>如果要导出为 ORC 格式，需要借助 Hive 提供的一个组件 HCatalog，同步语法也稍稍不太一样</p>
+
+<pre><code class="language-bash">sqoop import --connect jdbc:mysql://database.example.com/employees \
+ --username dbuser --password &quot;&quot; --table employees \
+ --drop-and-create-hcatalog-table \
+ --hcatalog-database employees --hcatalog-table employees \
+ --hcatalog-storage-stanza &quot;STORED AS ORC&quot;
+</code></pre>
+
+<p>Parquet 理论上也可以通过这种方式同步，不过实测当前 Sqoop 版本 (1.4.7) 还是有 BUG，还是等等吧。</p>
+
+<h3 id="toc_3">类型的兼容性</h3>
+
+<p>由于数据源支持的类型和 Hive 本身可能不太一样，所以必然存在类型转换的问题。实际在使用过程中也是非常头疼的一件事。对于 Hive 来说，支持的类型取决于采用的存储格式。以 MySQL 为例，当存储格式为 Hive 时，基本的类型映射如下：</p>
+
+<pre><code>MySQL(bigint) --&gt; Hive(bigint) 
+MySQL(tinyint) --&gt; Hive(tinyint) 
+MySQL(int) --&gt; Hive(int) 
+MySQL(double) --&gt; Hive(double) 
+MySQL(bit) --&gt; Hive(boolean) 
+MySQL(varchar) --&gt; Hive(string) 
+MySQL(decimal) --&gt; Hive(double) 
+MySQL(date/timestamp) --&gt; Hive(string)
+</code></pre>
+
+<p>这里的类型映射并不完全准确，因为还取决于目标存储格式支持的类型。</p>
+
+<p>由于 Text 格式非常类似 CSV，使用文本存储所有数据，对于 <code>Binary/Blob</code> 这样的类型就无法支持。Parquet/ORC/Avro 因为引入了序列化协议，本身存储是基于二进制的，所以可以支持绝大部分类型。</p>
+
+<p>如果你在使用 TextFile 需要注意下面的问题：</p>
+
+<ul>
+<li>上游数据源中的 <code>NULL</code> 会被转化为字符串的 <code>NULL</code>, Hive 中的 <code>NULL</code> 用 <code>\N</code> 表示</li>
+<li>如果内容中含有换行符，同步到 Hive 中会被当做独立的两行来处理，造成查询结果和实际数据不相符</li>
+</ul>
+
+<p>处理方法比较简单</p>
+
+<p>如果在使用 Parquet，要注意 Sqoop 自带的 Parquet 库版本比较旧，不支持 DateTime/Timestamp 类型的数据，而是会用一个表示 ms 的 BIGINT 来代替，分析数据的时候应该注意这点。</p>
+
+<h3 id="toc_4">数据校验</h3>
+
+<p>Sqoop 内建有 validate 机制，只能验证单表的 row count: <a href="https://sqoop.apache.org/docs/1.4.3/SqoopUserGuide.html#validation">Sqoop User Guide (v1.4.3)</a></p>
+
+<h3 id="toc_5">增量导入</h3>
+
+<p>对于数据量很大的库，全量同步会非常痛，但是如果可以选择还是尽可能的选择全量同步，这种同步模式对数据一致性的保证最好，没有状态。如果不得不进行增量同步，可以继续往后看。</p>
+
+<p>增量导入对业务是有一定侵入的，Schema 的设计和数据写入模式需要遵守一定的规范：</p>
+
+<ul>
+<li>增量同步表，最好有一个 Primary Key ，最好是单调递增的 ID</li>
+<li>数据的写入模式满足下面两种情形之一
+
+<ul>
+<li>（Append）表的内容类似日志，一次写入不做修改和删除</li>
+<li>（LastModified）表的内容有修改和删除，但是删除操作是逻辑删除，比如用 <code>is_deleted</code> 字段标识，并且有一个最后更新的时间戳比如 <code>updated_at</code>，<code>updated_at</code> 上有索引。</li>
+</ul></li>
+</ul>
+
+<p>增量的数据同步大致分为 2 个阶段：读取增量数据和合并数据。对 Sqoop 来说，增量同步需要 <a href="http://sqoop.apache.org/docs/1.4.7/SqoopUserGuide.html#_literal_sqoop_metastore_literal">sqoop-metastore</a> 的支持，用于保存上次同步的位置。</p>
+
+<p>比如对于 Append 模式，假设我们有一张表叫 <code>employees</code>，Primary Key 是 <code>id</code>，上一次同步到 <code>id &lt;= 10000</code> 的数据：</p>
+
+<pre><code class="language-bash">sqoop import --connect jdbc:mysql://database.example.com/employees \
+  --username dbuser --password &quot;&quot; --table employees \
+  --target-dir &lt;path/to/hive/table/location&gt; \
+  --incremental append --check-column id --last-value 10000
+</code></pre>
+
+<p>我们直接将数据 load 到了 Hive 的表空间里，Hive 可以直接查询到最新增量的数据。<br/>
+对 LastModified 模式会稍微复杂一些，除了加载增量数据，还涉及数据合并的问题，这里唯一的主键就特别重要了。</p>
+
+<pre><code class="language-bash">sqoop import --connect jdbc:mysql://database.example.com/employees \
+  --username dbuser --password &quot;&quot; --table employees \
+  --target-dir &lt;path/to/hive/table/location&gt; \
+  --incremental lastmodified --check-column updated_at --last-value &#39;2018-07-05 00:00:00&#39;
+</code></pre>
+
+<p>Sqoop 会在同步结束后再启动一个 merge 任务对数据去重，如果表太小，可能 merge 的代价比全量同步的还要高，我们就要慎重考虑全量同步是不是值得了。</p>
+
+<blockquote>
+<p>由于 HDFS 不支持修改文件，sqoop 的 <code>--incremental</code> 和 <code>--hive-import</code> 不能同时使用</p>
+</blockquote>
+
+<p>Sqoop 也提供了单独的 <code>sqoop merge</code> 工具，我们也可以分开进行 import 和 merge 这两个步骤。</p>
+
+<h3 id="toc_6">加速同步</h3>
+
+<p>这个小节讨论一下如何加快 Sqoop 的同步速度，Sqoop 同步速度大致取决于下面的几个因素：</p>
+
+<ul>
+<li>数据源的读取速度</li>
+<li>HDFS 写入速度</li>
+<li>数据倾斜程度</li>
+</ul>
+
+<h5 id="toc_7">数据源的读取速度</h5>
+
+<p>如果上游数据源是 MySQL，可以考虑更换 SSD，保证 MySQL 实例的负载不要太高。除此之外，Sqoop 可以通过参数控制并发读取的 Mapper 个数加快读取速度。</p>
+
+<pre><code class="language-bash">sqoop -m &lt;mapper_num&gt; ......
+</code></pre>
+
+<p>注意 <code>-m</code> 并不是越大越高，并发数过高会把数据库实例打死，同步速度反而变慢。</p>
+
+<p>Sqoop 默认会通过 jdbc 的 API 来读取数据，但是可以通过参数控制使用 MySQL 自己的 <code>mysqldump</code> 来导出数据，这种方式比 jdbc 快一些，缺点是你不能选择要同步的列。另外只能支持目标格式为 Textfile。比较局限但是特定情况下还是很好使的。</p>
+
+<h5 id="toc_8">HDFS 写入速度</h5>
+
+<p>这个除了刚刚提供的控制并发数，还需要保证 Yarn 分配给 Sqoop 的资源充足，不要让资源成为同步的瓶颈。另外，当我们选择 Parquet/ORC 作为存储格式时，数据在写入的时候需要做大量的预计算，这个过程是比较消耗 CPU 和内存的，我们可以控制 MapReduce 参数，适当提高 Sqoop 的资源配额。</p>
+
+<pre><code class="language-bash">sqoop -Dmapreduce.map.cpu.vcores=4 -Dmapreduce.map.memory.mb=8192 ...
+</code></pre>
+
+<h5 id="toc_9">数据倾斜</h5>
+
+<p>Sqoop 默认的导入策略是根据主键进行分区导入的，具体的并发粒度取决于 <code>-m</code> 参数。如果主键不连续出现大幅度跳跃，就会导致 Sqoop 导入的时候出现严重的数据倾斜。比如某张表的主键分布是这样的：</p>
+
+<pre><code>1
+2
+3
+...
+1000
+1001
+100000
+100001
+</code></pre>
+
+<p>Sqoop 计算每个 Mapper 读取的数据范围的时候，会遵循很简单的公式计算：</p>
+
+<pre><code>range = (max(pk) - min(pk)) / mapper
+</code></pre>
+
+<p>几乎出现所有的数据 load 都集中在第一个 mapper 上，整体同步相当于没有并发。</p>
+
+<p>参考阅读：</p>
+
+<ul>
+<li><a href="https://blog.csdn.net/mike_h/article/details/50148309">Hive 数据倾斜 (Data Skew) 总结 - CSDN博客</a></li>
+<li><a href="http://abhinaysandeboina.blogspot.hk/2017/08/avoiding-data-skew-in-sqoop.html">Avoiding Data Skew in Sqoop</a></li>
+<li><a href="https://docs.qingcloud.com/guide/sqoop.html">Sqoop 指南 — QingCloud  文档</a></li>
+</ul>
+
+<h3 id="toc_10">导出</h3>
+
+<p>Sqoop 支持将 Hive 的数据导出到 MySQL，方便在线系统调用。</p>
+
+<pre><code>sqoop export --connect jdbc:mysql://database.example.com/employees --table employees --username dbuser --password &quot;&quot; --relaxed-isolation --update-key id --update-mode allowinsert --hcatalog-database employees --hcatalog-table employees
+</code></pre>
+
+<p>借助 HCatalog 可以比较轻松的将 Hive 表的数据直接导出到 MySQL。更多的详情参考官方文档，这里不多介绍。</p>
+
+<h3 id="toc_11">更进一步</h3>
+
+<p>如果我们要同步的数据非常多，管理同步任务本身就变成了一件复杂的事情。我们不仅要考虑源数据库的负载，安全性。还要考虑同步任务的启动时间，Schema 变更等等问题。实际使用的时候，我们在内部自研了一个平台，管理 MySQL 和 Hive 的数据源并对 Sqoop 任务做了调度。有一部分功能在 Sqoop 2.0 已经实现了。在大规模使用 sqoop 一定要想清楚运维的问题。</p>
+
+<h3 id="toc_12">Reference</h3>
+
+<ul>
+<li><a href="https://stackoverflow.com/questions/24987820/not-able-to-run-sqoop-using-oozie">hadoop - Not able to run sqoop using oozie - Stack Overflow</a></li>
+<li><a href="https://stackoverflow.com/questions/23250977/how-to-deal-with-sqoop-import-delimiter-issues-r-n">mysql - how to deal with sqoop import delimiter issues \r\n - Stack Overflow</a></li>
+<li><a href="https://www.zybuluo.com/aitanjupt/note/209968">使用Sqoop从MySQL导入数据到Hive和HBase 及近期感悟 - 作业部落 Cmd Markdown 编辑阅读器</a></li>
+<li><a href="https://community.hortonworks.com/questions/28060/can-sqoop-be-used-to-directly-import-data-into-an.html">Can sqoop be used to directly import data into an ORC table? - Hortonworks</a></li>
+<li><a href="https://cwiki.apache.org/confluence/display/Hive/LanguageManual+ORC">LanguageManual ORC - Apache Hive - Apache Software Foundation</a></li>
+<li>Hive 增量同步： <a href="https://hortonworks.com/blog/four-step-strategy-incremental-updates-hive/">Four-step Strategy for Incremental Updates in Apache Hive</a></li>
+<li>使用 MERGE INTO 更新 Hive 数据： <a href="https://hortonworks.com/blog/update-hive-tables-easy-way/">Update Hive Tables the Easy Way - Hortonworks</a></li>
+<li>SQL MERGE 的性能： <a href="https://hortonworks.com/blog/apache-hive-moving-beyond-analytics-offload-with-sql-merge/">Apache Hive: Moving Beyond Analytics Offload with SQL MERGE - Hortonworks</a></li>
+<li><a href="https://community.hortonworks.com/questions/11373/sqoop-incremental-import-in-hive-i-get-error-messa.html">sqoop incremental import in hive I get error message hive not support append mode how to solve that - Hortonworks</a></li>
+<li><a href="http://www.hadooptechs.com/sqoop/sqoop-incremental-import-mysql-to-hive">Sqoop Incremental Import | MySQL to Hive | Big Data &amp; Hadoop</a></li>
+<li><a href="https://ask.hellobi.com/blog/marsj/4114">Sqoop 1.4.6 导入实战 (RDB含MySQL和Oracle) - 天善智能：专注于商业智能BI和数据分析、大数据领域的垂直社区平台</a></li>
+</ul>
+
+
+			
+			
+		</div>
+
+	</article>
+ 
+	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+		<div class="meta">
+			<div class="date">
 				<time datetime="2018-02-02T15:40:38+08:00" itemprop="datePublished">2018/2/2</time>
 			</div>
 			
@@ -665,206 +946,6 @@ HAProxy 自己也会注册到 Cosnul，伪装成服务的后端被调用，而�
 <p>[1] <a href="https://www.ibm.com/developerworks/cn/aix/library/au-aix-graphviz/">使用 Graphviz 生成自动化系统图</a><br/>
 [2] <a href="https://zh.wikipedia.org/wiki/DOT%E8%AF%AD%E8%A8%80">DOT语言 - 维基百科，自由的百科全书</a><br/>
 [3] <a href="http://www.graphviz.org/content/dot-language">http://www.graphviz.org/content/dot-language</a></p>
-
-
-			
-			
-		</div>
-
-	</article>
- 
-	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
-		<div class="meta">
-			<div class="date">
-				<time datetime="2015-12-21T11:12:38+08:00" itemprop="datePublished">2015/12/21</time>
-			</div>
-			
-			 
-			
-		</div>
-		<h1 class="title" itemprop="name"><a href="14506675584773.html" itemprop="url">
-		elixir-overview</a></h1>
-		<div class="entry-content" itemprop="articleBody">
-			
-			<h1 id="toc_0"></h1>
-
-<h1 id="toc_1">初窥 Elixir</h1>
-
-<p>Elixir 是基于 Erlang VM 开发一个新语言，继承了 Erlang 的很多有点，在保持和 Erlang ByteCode 兼容的提前下提供了非常简洁易懂的语法。单从语法层面可能和 Ruby 比较像，不过仔细看还是和 Erlang 有很多一致的地方，如果你不习惯 Erlang 奇怪的语法(其实看过 Prolog 的语法以后就不觉得 Erlang 奇怪了)，但是又想享受 Erlang/OTP 带来的各种好处，Elixir 是不错的选择。</p>
-
-<p>Elixir 可以调用 Erlang 的标准库，如果基本不用担心 第三方库不足的问题， Erlang 几十年的积累在这里放着呢，难怪 Joe Armstrong 大叔也对 Elixir 赞不绝口。</p>
-
-<h2 id="toc_2">类型</h2>
-
-<p>用 <code>iex</code> 来启动的 Elixir Shell，可以看到一个很像 Erlang Shell 的东西：</p>
-
-<pre><code>$ iex
-Erlang/OTP 17 [erts-6.1] [source] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false] [dtrace]
-
-Interactive Elixir (1.0.3) - press Ctrl+C to exit (type h() ENTER for help)
-iex&gt;
-</code></pre>
-
-<p>Elixir 支持 Erlang 大部分的类型，integer, float, atom, list, tuple, binary, keywords, map ...</p>
-
-<pre><code>iex&gt; 1
-1
-iex&gt; &quot;foobar&quot;
-&quot;foobar&quot;
-iex&gt; &#39;foobar&#39;
-&#39;foobar&#39;
-iex&gt; :foo
-:foo
-iex&gt; [1, 2, 3]
-[1, 2, 3]
-iex&gt; {:foo, :bar}
-{:foo, :bar}
-iex&gt; &lt;&lt;104, 101, 108, 108, 111, 0&gt;&gt;
-&lt;&lt;104, 101, 108, 108, 111, 0&gt;&gt;
-iex&gt; [{:foo, 1}, {:bar, 2}]
-[foo: 1, bar: 2]
-iex&gt; %{:ok =&gt; 1, :fail =&gt; 2}
-%{fail: 2, ok: 1}
-</code></pre>
-
-<p><code>&quot;foobar&quot;</code> 和 <code>&#39;foobar&#39;</code> 是不同的类型，前者是 string，后者是是一个 charlist</p>
-
-<pre><code>iex&gt; is_binary &quot;foobar&quot;
-true
-iex&gt; is_list &#39;foobar&#39;
-true
-</code></pre>
-
-<p>Elixir 引入了一个很像 Map 的类型叫 Keyword，但其实 Keyword  就是一个二元的 <code>tuple</code> 列表，不过要求 <code>tuple</code> 的第一个元素是 <code>atom</code>。Keyword 支持类似 Map 的访问方式</p>
-
-<pre><code>iex&gt; keyword1 = [{:foo, 1}, {:bar, 2}]
-[foo: 1, bar: 2]
-iex&gt; keyword1[:foo]
-1
-iex&gt; keyword1[:bar]
-2
-</code></pre>
-
-<p>Map 通过 <code>%{ key1 =&gt; value1, key2 =&gt; value2 ...}</code> 的语法来创建，访问 Map 中的值有 3 种方式：</p>
-
-<pre><code>iex&gt; map = %{:a =&gt; 1, 2 =&gt; :b}
-%{2 =&gt; :b, :a =&gt; 1}
-iex&gt; map[:a]
-1
-iex&gt; map[2]
-:b
-</code></pre>
-
-<p>不论 Map 还是 Keyword lists 都实现了 Dict 的访问协议，我们可以可以用 Dict 模块同时处理这 2 种数据结构。</p>
-
-<pre><code>iex&gt; map
-%{2 =&gt; :b, :a =&gt; 1}
-iex&gt; Dict.get(map, :a)
-1
-iex&gt; Dict.put_new(map, :c, 3)
-%{2 =&gt; :b, :a =&gt; 1, :c =&gt; 3}
-</code></pre>
-
-<h2 id="toc_3">模式匹配和递归</h2>
-
-<p>Elixir 和 Erlang 一样，实现了模式匹配。模式匹配的强大不用多说，在解析数据的时候可以少写很多很多的 if...else... </p>
-
-<pre><code>iex&gt; {:ok, msg} = {:ok, &quot;success&quot;}
-{:ok, &quot;success&quot;}
-iex&gt; %{:a =&gt; x} = %{:a =&gt; 1, :b =&gt; 2}
-%{a: 1, b: 2}
-iex&gt; %{:a =&gt; x} = %{:b =&gt; 2}
-** (MatchError) no match of right hand side value: %{b: 2}
-</code></pre>
-
-<p>Elixir 里的函数必须定义在 Module 里，让我们实现一个计算斐波那契数列的模块。</p>
-
-<pre><code>defmodule Math do
-  @doc&quot;&quot;&quot;
-  Calculate Fibonacci sequence value
-  &quot;&quot;&quot;
-  def fab(1) do 1 end
-  def fab(2) do 1 end
-  def fab(n) do
-    fab(n-1) + fab(n-2)
-  end
-
-  @doc &quot;&quot;&quot;
-  Calculates the sum of a number list
-  &quot;&quot;&quot;
-  def sum(list) do sum(list, 0) end
-  def sum([], sum) do sum end
-  def sum([h|t], sum) do sum(t, sum + h) end
-  
-end
-</code></pre>
-
-<h2 id="toc_4">Enumerables &amp; streams &amp; Comprehensions</h2>
-
-<p><code>Enum</code> 和 <code>Stream</code> 最大的不同是 <code>Stream</code> 是惰性求值，类似 Python 里的 generator，只有需要计算的时候真正计算。</p>
-
-<pre><code>iex&gt; Enum.map(1..10, fn x -&gt; x * x end)
-[1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
-iex&gt; Enum.reduce(1..10, 0, &amp;(&amp;1+&amp;2))
-55
-iex&gt; 1..10 |&gt; Enum.map(&amp;(&amp;1*&amp;1)) |&gt; Enum.reduce(&amp;(&amp;1+&amp;2))
-385
-iex&gt; 1..100 |&gt; Stream.map(&amp;(&amp;1*&amp;1)) |&gt; Stream.filter(&amp;(rem(&amp;1, 2) != 0)) |&gt; Enum.sum
-166650
-</code></pre>
-
-<p>Elixir 也提供了列表推倒的机制，利用 for 的 filter 机制，还能方便实现一些功能。</p>
-
-<pre><code>iex&gt; for n &lt;- 1..4, do: n * n
-[1, 4, 9, 16]
-</code></pre>
-
-<p>找到 n 以内满足 <code>a^2 + b^2 = c^2</code> 的 <code>{a, b, c}</code> 元组：</p>
-
-<pre><code>defmodule Triple do
-  def pythagorean(n) when n &gt; 0 do
-    for a &lt;- 1..n,
-        b &lt;- 1..n,
-        c &lt;- 1..n,
-        a + b + c &lt;= n,
-        a*a + b*b == c*c,
-        do: {a, b, c}
-  end
-end
-</code></pre>
-
-<h2 id="toc_5">异常处理</h2>
-
-<p>Elixir 提供了 3 种错误处理机制：</p>
-
-<ul>
-<li>Errors &amp; Exceptions</li>
-<li>Throws</li>
-<li>Exits</li>
-</ul>
-
-<pre><code>iex&gt; try do
-...&gt;   raise &quot;oops&quot;
-...&gt; rescue
-...&gt;   RuntimeError -&gt; &quot;Error!&quot;
-...&gt; end
-&quot;Error!&quot;
-
-iex&gt; spawn_link fn -&gt; exit(1) end
-#PID&lt;0.56.0&gt;
-** (EXIT from #PID&lt;0.56.0&gt;) 1
-</code></pre>
-
-<h2 id="toc_6">调用 Erlang 代码</h2>
-
-<pre><code>iex&gt; angle_45_deg = :math.pi() * 45.0 / 180.0
-iex&gt; :math.sin(angle_45_deg)
-0.7071067811865475
-</code></pre>
-
-<h2 id="toc_7">Process</h2>
-
-<p>Elixir 借助 ErlangVM 实现了 Actor 模型，进程和进程之间仅通过消息通信，每个 Actor 都有一个 Mailbox ，消息总是被拷贝到 MailBox 中然后等待进程处理。这里的 Process 和操作系统的 Process 不能等同，它比操作系统的 Process 要轻量很多，可能很轻松在单机上开启几十万的 Process。</p>
 
 
 			
