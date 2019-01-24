@@ -122,6 +122,180 @@
 	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
 		<div class="meta">
 			<div class="date">
+				<time datetime="2016-08-10T10:14:46+08:00" itemprop="datePublished">2016/8/10</time>
+			</div>
+			
+			 
+			
+		</div>
+		<h1 class="title" itemprop="name"><a href="14707952861924.html" itemprop="url">
+		Graphviz 入门指南</a></h1>
+		<div class="entry-content" itemprop="articleBody">
+			
+			<p>Graphviz 是一个开源的图可视化工具，非常适合绘制结构化的图标和网络。Graphviz 使用一种叫 DOT 的语言来表示图形。</p>
+
+<h3 id="toc_0">DOT 语言</h3>
+
+<p>DOT 语言是一种图形描述语言。能够以简单的方式描述图形，并且为人和计算机所理解。</p>
+
+<h4 id="toc_1">无向图</h4>
+
+<pre><code>graph graphname {
+    a -- b -- c;
+   b -- d;
+}
+</code></pre>
+
+<p><img src="media/14707952861924/14710194114259.jpg" alt="" style="width:220px;"/></p>
+
+<h4 id="toc_2">有向图</h4>
+
+<pre><code>digraph graphname {
+    a -&gt; b -&gt; c;
+    b -&gt; d;
+}
+</code></pre>
+
+<p><img src="media/14707952861924/14710200127648.jpg" alt=""/></p>
+
+<h4 id="toc_3">设置属性</h4>
+
+<p>属性可以设置在节点和边上，用一对 <code>[]</code> 表示，多个属性可以用空格或者 <code>,</code> 隔开。</p>
+
+<pre><code>strict graph {
+    // 设置节点属性
+  b [shape=box];
+  c [shape=triangle];
+
+  // 设置边属性
+  a -- b [color=blue];
+  a -- c [style=dotted];
+}
+</code></pre>
+
+<p>完整的属性列表可以参考 <a href="http://www.graphviz.org/content/attrs">attrs | Graphviz - Graph Visualization Software</a></p>
+
+<h4 id="toc_4">子图</h4>
+
+<p><code>subgraph</code> 的作用主要有 3 个：</p>
+
+<ol>
+<li>表示图的结构，对节点和边进行分组</li>
+<li>提供一个单独的上下位文设置属性</li>
+<li>针对特定引擎使用特殊的布局。比如下面的例子，如果 <code>subgraph</code> 的名字以 <code>cluster</code> 开头，所有属于这个子图的节点会用一个矩形和其他节点分开。</li>
+</ol>
+
+<pre><code>digraph graphname{ 
+    a -&gt; {b c};
+    c -&gt; e;
+    b -&gt; d;
+    
+    subgraph cluster_bc {
+        bgcolor=red;
+        b;
+        c;
+    }
+    
+    subgraph cluster_de {
+        label=&quot;Block&quot;
+        d;
+        e;
+    }
+}
+</code></pre>
+
+<p><img src="media/14707952861924/14710216720774.jpg" alt=""/></p>
+
+<h4 id="toc_5">布局</h4>
+
+<p>默认情况下图是从上到下布局的，通过设置 <code>rankdir=&quot;LR&quot;</code> 可以让图从左到右布局。</p>
+
+<p>一个简单的表示 CI&amp;CD 过程的图：</p>
+
+<pre><code>digraph pipleline {
+    rankdir=LR;
+    g [label=&quot;Gitlab&quot;];
+    j [label=&quot;Jenkins&quot;];
+    t [label=&quot;Testing&quot;];
+    p [label=&quot;Production&quot; color=red];
+    
+    g -&gt; j [label=&quot;Trigger&quot;];
+    j -&gt; t [label=&quot;Build&quot;];
+    t -&gt; p [label=&quot;Approved&quot;];
+}
+</code></pre>
+
+<p><img src="media/14707952861924/14710227380504.jpg" alt=""/></p>
+
+<h3 id="toc_6">工具</h3>
+
+<p>有非常多的工具可以支持 DOT 语言，这些工具都被集成在 Graphviz 的软件包中，可以简单安装使用。</p>
+
+<p>dot </p>
+
+<blockquote>
+<p>一个用来将生成的图形转换成多种输出格式的命令行工具。其输出格式包括PostScript，PDF，SVG，PNG，含注解的文本等等。</p>
+</blockquote>
+
+<p>neato </p>
+
+<blockquote>
+<p>用于sprint model的生成（在Mac OS版本中称为energy minimized）。</p>
+</blockquote>
+
+<p>twopi </p>
+
+<blockquote>
+<p>用于放射状图形的生成</p>
+</blockquote>
+
+<p>circo </p>
+
+<blockquote>
+<p>用于圆形图形的生成。</p>
+</blockquote>
+
+<p>fdp </p>
+
+<blockquote>
+<p>另一个用于生成无向图的工具。</p>
+</blockquote>
+
+<p>dotty </p>
+
+<blockquote>
+<p>一个用于可视化与修改图形的图形用户界面程序。</p>
+</blockquote>
+
+<p>lefty </p>
+
+<blockquote>
+<p>一个可编程的(使用一种被EZ影响的语言[4])控件，它可以显示DOT图形，并允许用户用鼠标在图上执行操作。Lefty可以作为MVC模型的使用图形的GUI程序中的视图部分。</p>
+</blockquote>
+
+<p>另外介绍 2 个在线生成 Graphviz 的网站：</p>
+
+<ul>
+<li><a href="http://www.webgraphviz.com/">http://www.webgraphviz.com/</a></li>
+<li><a href="http://dreampuf.github.io/GraphvizOnline/">http://dreampuf.github.io/GraphvizOnline/</a></li>
+</ul>
+
+<h3 id="toc_7">Reference</h3>
+
+<p>[1] <a href="https://www.ibm.com/developerworks/cn/aix/library/au-aix-graphviz/">使用 Graphviz 生成自动化系统图</a><br/>
+[2] <a href="https://zh.wikipedia.org/wiki/DOT%E8%AF%AD%E8%A8%80">DOT语言 - 维基百科，自由的百科全书</a><br/>
+[3] <a href="http://www.graphviz.org/content/dot-language">http://www.graphviz.org/content/dot-language</a></p>
+
+
+			
+			
+		</div>
+
+	</article>
+ 
+	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+		<div class="meta">
+			<div class="date">
 				<time datetime="2015-12-21T11:12:38+08:00" itemprop="datePublished">2015/12/21</time>
 			</div>
 			
