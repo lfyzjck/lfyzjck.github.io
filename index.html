@@ -122,6 +122,242 @@
 	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
 		<div class="meta">
 			<div class="date">
+				<time datetime="2019-09-10T11:45:44+08:00" itemprop="datePublished">2019/9/10</time>
+			</div>
+			
+			 
+			
+		</div>
+		<h1 class="title" itemprop="name"><a href="15680871440612.html" itemprop="url">
+		Hive 锁机制</a></h1>
+		<div class="entry-content" itemprop="articleBody">
+			
+			<h2 id="toc_0">背景</h2>
+
+<p>Hive 锁机制是为了让 Hive 支持并发读写而设计的 feature，另外要解决并发读写的情况下”脏读“ （Read uncommited）的问题。脏读的问题本身通过实现了原子的 reader/writer 已经得到解决（<a href="https://issues.apache.org/jira/browse/HIVE-829">https://issues.apache.org/jira/browse/HIVE-829</a>）和锁机制并不绑定。</p>
+
+<h2 id="toc_1">锁机制</h2>
+
+<p>Hive 内部定义了两种类型的锁：</p>
+
+<ul>
+<li>共享锁(Share)</li>
+<li>互斥锁(Exclusive)</li>
+</ul>
+
+<p>不同锁之间的兼容性入下面表格：</p>
+
+<table>
+<thead>
+<tr>
+<th>Lock Compatibility</th>
+<th>Existing Lock（S）</th>
+<th>Existing Lock（X）</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>Requested Lock（S）</td>
+<td>True</td>
+<td>False</td>
+</tr>
+<tr>
+<td>Requested Lock（X）</td>
+<td>False</td>
+<td>False</td>
+</tr>
+</tbody>
+</table>
+
+<p>锁的基本机制是：</p>
+
+<ul>
+<li>元信息和数据的变更需要互斥锁</li>
+<li>数据的读取需要共享锁</li>
+</ul>
+
+<p>根据这个机制，Hive 的一些场景操作对应的锁级别如下：</p>
+
+<table>
+<thead>
+<tr>
+<th>Hive command</th>
+<th>Locks Acquired</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>select .. T1 partition P1</td>
+<td>S on T1, T1.P1</td>
+</tr>
+<tr>
+<td>insert into T2(partition P2) select .. T1 partition P1</td>
+<td>S on T2, T1, T1.P1 and X on T2.P2</td>
+</tr>
+<tr>
+<td>insert into T2(partition P.Q) select .. T1 partition P1</td>
+<td>S on T2, T2.P, T1, T1.P1 and X on T2.P.Q</td>
+</tr>
+<tr>
+<td>alter table T1 rename T2</td>
+<td>X on T1</td>
+</tr>
+<tr>
+<td>alter table T1 add cols</td>
+<td>X on T1</td>
+</tr>
+<tr>
+<td>alter table T1 replace cols</td>
+<td>X on T1</td>
+</tr>
+<tr>
+<td>alter table T1 change cols</td>
+<td>X on T1</td>
+</tr>
+<tr>
+<td>alter table T1 concatenate</td>
+<td>X on T1</td>
+</tr>
+<tr>
+<td>alter table T1 add partition P1</td>
+<td>S on T1, X on T1.P1</td>
+</tr>
+<tr>
+<td>alter table T1 drop partition P1</td>
+<td>S on T1, X on T1.P1</td>
+</tr>
+<tr>
+<td>alter table T1 touch partition P1</td>
+<td>S on T1, X on T1.P1</td>
+</tr>
+<tr>
+<td>alter table T1 set serdeproperties</td>
+<td>S on T1</td>
+</tr>
+<tr>
+<td>alter table T1 set serializer</td>
+<td>S on T1</td>
+</tr>
+<tr>
+<td>alter table T1 set file format</td>
+<td>S on T1</td>
+</tr>
+<tr>
+<td>alter table T1 set tblproperties</td>
+<td>X on T1</td>
+</tr>
+<tr>
+<td>alter table T1 partition P1 concatenate</td>
+<td>X on T1.P1</td>
+</tr>
+<tr>
+<td>drop table T1</td>
+<td>X on T1</td>
+</tr>
+</tbody>
+</table>
+
+<p>Hive 锁在 zookeeper 上会对应 ephemeral 的节点，避免释放锁失败导致死锁</p>
+
+<h2 id="toc_2">调试锁🔐</h2>
+
+<p>可以通过下面命令查看某个表或者分区的锁</p>
+
+<ul>
+<li>SHOW LOCKS <TABLE_NAME>;</li>
+<li>SHOW LOCKS <TABLE_NAME> EXTENDED;</li>
+<li>SHOW LOCKS <TABLE_NAME> PARTITION (<PARTITION_DESC>);</li>
+<li>SHOW LOCKS <TABLE_NAME> PARTITION (<PARTITION_DESC>) EXTENDED;</li>
+</ul>
+
+<p>See also <a href="https://cwiki.apache.org/confluence/display/Hive/LanguageManual+Explain#LanguageManualExplain-TheLOCKSClause">EXPLAIN LOCKS</a>.</p>
+
+<h2 id="toc_3">关闭锁机制</h2>
+
+<p>可以通过设置 <code>hive.support.concurrency=fasle</code> 来解决</p>
+
+<p>关闭锁机制会造成下面影响：</p>
+
+<ul>
+<li>并发读写同一份数据时，读操作可能会随机失败</li>
+<li>并发写操作的结果在随机出现，后完成的任务覆盖之前完成任务的结果</li>
+<li>SHOW LOCKS， UNLOCK TABLE 会报错</li>
+</ul>
+
+<h2 id="toc_4">HiveLockManager 的实现</h2>
+
+<p>在关闭 Hive 锁的过程中，发现粗暴的禁用 concurrency 会导致 UNLOCK TABLE 语法报错。一些遗留系统已经依赖这个语法来确保自身任务不被阻塞，这样的修改会导致这些程序出现问题。于是转而研究有没有其他简单锁的实现可以达到类似的效果。粗看 Hive 的代码找到这 3  种实现：</p>
+
+<ul>
+<li>DbLockManager 配合 DbTxnManager 用于在 Hive 中实现事务，不能单独使用</li>
+<li>EmbeddedLockManager HiveServer 级别基于内存实现的锁</li>
+<li>ZooKeeperHiveLockManager 默认的 LockManager 实现，基于 zookeeper 实现的分布式协调锁</li>
+</ul>
+
+<h2 id="toc_5">Hive Zookeeper 锁泄露问题</h2>
+
+<p>在 cancel Hive 查询时，有概率发生 Zookeeper 锁释放失败的问题。因为 Hive 的锁在Zookeeper 是持久节点，累计的锁释放失败可能造成 Zookeeper 的 Node 数量过多，影响 Zookeeper 的性能。社区有对应的 ISSUE，该问题在 2.3.0 版本才被 FIX: <a href="https://issues.apache.org/jira/browse/HIVE-15997">https://issues.apache.org/jira/browse/HIVE-15997</a></p>
+
+<p>HiveServer 上可以发现类似日志，就是锁释放失败的标志：</p>
+
+<pre><code>2019-03-06T07:41:56,556 ERROR [HiveServer2-Background-Pool: Thread-45399] ZooKeeperHiveLockManager: Failed to release ZooKeeper lock:
+java.lang.InterruptedException
+        at java.lang.Object.wait(Native Method) ~[?:1.8.0_45]
+        at java.lang.Object.wait(Object.java:502) ~[?:1.8.0_45]
+        at org.apache.zookeeper.ClientCnxn.submitRequest(ClientCnxn.java:1342) ~[zookeeper-3.4.5-cdh5.5.0.jar:3.4.5-cdh5.5.0--1]
+        at org.apache.zookeeper.ZooKeeper.delete(ZooKeeper.java:871) ~[zookeeper-3.4.5-cdh5.5.0.jar:3.4.5-cdh5.5.0--1]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl$5.call(DeleteBuilderImpl.java:239) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl$5.call(DeleteBuilderImpl.java:234) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.RetryLoop.callWithRetry(RetryLoop.java:107) ~[curator-client-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl.pathInForeground(DeleteBuilderImpl.java:230) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl.forPath(DeleteBuilderImpl.java:215) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl.forPath(DeleteBuilderImpl.java:42) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.unlockPrimitive(ZooKeeperHiveLockManager.java:474) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.unlockWithRetry(ZooKeeperHiveLockManager.java:452) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.unlock(ZooKeeperHiveLockManager.java:440) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.releaseLocks(ZooKeeperHiveLockManager.java:222) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.DummyTxnManager.releaseLocks(DummyTxnManager.java:188) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.releaseLocksAndCommitOrRollback(Driver.java:1136) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.rollback(Driver.java:1516) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.runInternal(Driver.java:1456) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.run(Driver.java:1171) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.run(Driver.java:1166) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hive.service.cli.operation.SQLOperation.runQuery(SQLOperation.java:242) [hive-service-2.1.1.jar:2.1.1]
+        at org.apache.hive.service.cli.operation.SQLOperation.access$800(SQLOperation.java:91) [hive-service-2.1.1.jar:2.1.1]
+        at org.apache.hive.service.cli.operation.SQLOperation$BackgroundWork$1.run(SQLOperation.java:334) [hive-service-2.1.1.jar:2.1.1]
+        at java.security.AccessController.doPrivileged(Native Method) ~[?:1.8.0_45]
+        at javax.security.auth.Subject.doAs(Subject.java:422) [?:1.8.0_45]
+        at org.apache.hadoop.security.UserGroupInformation.doAs(UserGroupInformation.java:1671) [hadoop-common-2.6.0-cdh5.5.0.jar:?]
+        at org.apache.hive.service.cli.operation.SQLOperation$BackgroundWork.run(SQLOperation.java:347) [hive-service-2.1.1.jar:2.1.1]
+        at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511) [?:1.8.0_45]
+        at java.util.concurrent.FutureTask.run(FutureTask.java:266) [?:1.8.0_45]
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142) [?:1.8.0_45]
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617) [?:1.8.0_45]
+        at java.lang.Thread.run(Thread.java:745) [?:1.8.0_45]
+</code></pre>
+
+<p>锁泄露除了修复这个 ISSUE 以外比较难处理。在公司中，如果有成熟的调度器协调任务的依赖关系，那么非常建议禁用掉 Hive 的锁机制。在表数量众多，分区众多的场景下，使用 Zookeeper 的代价也是非常高的。</p>
+
+<h2 id="toc_6">参考资料</h2>
+
+<ul>
+<li><a href="https://cwiki.apache.org/confluence/display/Hive/Locking">https://cwiki.apache.org/confluence/display/Hive/Locking</a></li>
+<li><a href="https://issues.apache.org/jira/browse/HIVE-1293">https://issues.apache.org/jira/browse/HIVE-1293</a></li>
+<li><a href="https://issues.apache.org/jira/browse/HIVE-15997">https://issues.apache.org/jira/browse/HIVE-15997</a></li>
+</ul>
+
+
+			
+			
+		</div>
+
+	</article>
+ 
+	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+		<div class="meta">
+			<div class="date">
 				<time datetime="2018-11-10T10:00:52+08:00" itemprop="datePublished">2018/11/10</time>
 			</div>
 			
@@ -855,97 +1091,6 @@ RBO 本质上是一个 Transformer，在 QB Tree 上做一系列的变换来减�
 <p>C. Execution Engine</p>
 
 <p>执行引擎会解析 plan.xml ，然后按照顺序将任务提交到 Hadoop，最终的数据库文件也会 move 到 HDFS 的指定目录。</p>
-
-
-			
-			
-		</div>
-
-	</article>
- 
-	<article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
-		<div class="meta">
-			<div class="date">
-				<time datetime="2016-12-03T15:41:08+08:00" itemprop="datePublished">2016/12/3</time>
-			</div>
-			
-			 
-			
-		</div>
-		<h1 class="title" itemprop="name"><a href="14807508681806.html" itemprop="url">
-		金丝雀发布</a></h1>
-		<div class="entry-content" itemprop="articleBody">
-			
-			<p>金丝雀部署（Canary Deployments）在知乎落地差不多一年时间，通过金丝雀避免了很多线上的问题，相比之前的发布模型，极大降低了部署的风险。知乎是非常推崇 Devops 的公司，金丝雀发布作为 Devops 一种实践自然不会落下。但是由于基础设施变得越来越抽象和复杂，理解整个部署的工作流程已经变得比较困难，正好有机会给新的同事科普一下金丝雀发布的架构。</p>
-
-<p>相传上个世纪煤矿工人在作业时，为了避免瓦斯中毒会随身带一只金丝雀下到矿洞，由于金丝雀对二氧化碳非常敏感，所以看到金丝雀昏厥的时候矿工们就知道该逃生了。[1]</p>
-
-<p>金丝雀发布就是用生产环境一小部分流量验证应用的一种方法。从这个名字的由来也可以看到，金丝雀发布并不是完美的，如果代码出现问题，那么背用作测试的小部分流量会出错，就跟矿坑中昏厥的金丝雀一样。这种做法在非常敏感的业务中几乎无法接受，但是当系统复杂的到一定程度，错误无法完全避免的时候，为了避免出现更大的问题，牺牲一小部分流量，就可以将大部分错误的影响控制在一定范围内。</p>
-
-<h3 id="toc_0">金丝雀发布的步骤</h3>
-
-<p>一个典型的金丝雀发布大概包含以下步骤[2]：</p>
-
-<ol>
-<li>准备好发布用的 artifact</li>
-<li>从负载均衡器上移除金丝雀服务器</li>
-<li>升级金丝雀服务器</li>
-<li>最应用进行自动化测试</li>
-<li>将金丝雀服务器加入到负载均衡列表中</li>
-<li>升级剩余的服务版本</li>
-</ol>
-
-<p>在知乎，负载均衡器采用的 HAProxy，并且依赖 Consul 作服务注册发现。而服务器可能是一台物理机也可能是 bay 上一个抽象的容器组。</p>
-
-<p><img src="media/14807508681806/Canary%20Deployments.png" alt="Canary Deployments"/></p>
-
-<ul>
-<li>对于物理机，我们可以单独为其配置一个一台独立的服务器，通过在 HAProxy 上设置不同于 Production 服务器的权重来控制测试流量。但是这种方法不够方便，做自动化也难一些</li>
-<li>对于容器相对简单，我们复制一个 Production 版本的容器组，然后通过控制 Production 和 Canary 容器组的数量就可以控制流量。</li>
-</ul>
-
-<p>整个过程是部署系统在中间协调，当我们上线发布完成，部署系统会移除金丝雀服务器，让应用回到 Normal 状态。</p>
-
-<p>如果遇到问题需要回滚，只需要将金丝雀容器组从 HAProxy 上摘掉就可以，基本上可以在几秒内完成。</p>
-
-<h3 id="toc_1">HAProxy</h3>
-
-<p>在整个金丝雀发布的架构中，HAProxy 是非常重要的一个组件，要发现后端的服务地址，并动态控制金丝雀和线上的流量比例。部署时我们并不会直接操作 HAProxy，而是更新 Consul 上的注册信息，通过事件广播告诉 HAProxy 服务地址有变化，这一过程通过 <code>consul-template</code> 完成。</p>
-
-<p><img src="media/14807508681806/consul.png" alt="consu"/><br/>
-HAProxy 自己也会注册到 Cosnul，伪装成服务的后端被调用，而服务自身则注册成 <code>服务名 + --instance</code>，在我们内部的 Consul 控制台可以看到。</p>
-
-<p>每个服务都有自己独立的 HAproxy 集群，分布在不同的机器上，每个 HAProxy 只知道自己代理的服务的地址。这样做的好处是单个 HAProxy 崩溃不会影响业务，一组 HAProxy 负载高不会把故障扩散到整个集群。另外附带的一个好处是当我们更新服务注册地址时，不会 reload 整个 HAProxy 集群，只要更新对应的 HAProxy 实例就可以，一定程度上可以规避惊群问题。</p>
-
-<p>HAProxy 的地址通过客户端服务发现获得，客户端发现多个 HAProxy 地址并可以做简单的负载均衡，将请求压力分摊到多个 HAProxy 实例上。</p>
-
-<p>采用类似方案的公司是 Airbnb，不过他们的做法是把 HAProxy 作为一个 Agent 跑在服务器上，HAProxy 更靠近客户端[3]。</p>
-
-<h3 id="toc_2">金丝雀发布的监控</h3>
-
-<p>有了金丝雀发布后，我们还得能区分金丝雀和线上的监控数据，以此判断服务是否正常。</p>
-
-<p>由于有了 zone 和 tzone 框架对监控的支持，这件事推起来相对简单。我们在部署时将服务当前所在的环境注入到环境变量中，然后根据环境变量来决定指标的名称。</p>
-
-<p>比如一个正常的指标名称是:</p>
-
-<pre><code>production.span.multimedia.server.APIUploadHandler_post.request_time
-</code></pre>
-
-<p>在金丝雀环境中的名称则是:</p>
-
-<pre><code>canary.span.multimedia.server.APIUploadHandler_post.request_time
-</code></pre>
-
-<p>最后我们可以在 Halo 对比服务在金丝雀和生产的表现有何差别：</p>
-
-<p><img src="media/14807508681806/14808361124276.jpg" alt=""/></p>
-
-<h3 id="toc_3">Reference</h3>
-
-<p>[1] 金丝雀发布的由来: <a href="https://blog.ccjeng.com/2015/06/canary-deployment.html">https://blog.ccjeng.com/2015/06/canary-deployment.html</a><br/>
-[2] 在生产中使用金丝雀部署来进行测试: <a href="http://www.infoq.com/cn/news/2013/03/canary-release-improve-quality">http://www.infoq.com/cn/news/2013/03/canary-release-improve-quality</a><br/>
-[3] Service Discovery in the Cloud: <a href="http://nerds.airbnb.com/smartstack-service-discovery-cloud/">http://nerds.airbnb.com/smartstack-service-discovery-cloud/</a></p>
 
 
 			
