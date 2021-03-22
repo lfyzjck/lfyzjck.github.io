@@ -7,9 +7,6 @@ highlighter: rouge
 remote_theme: "mmistakes/minimal-mistakes@4.22.0"
 show_downloads: false
 
-github:
-  repository_url: https://github.com/lfyzjck
-
 plugins:
   - jekyll-remote-theme
   - jekyll-paginate
