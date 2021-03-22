@@ -1,0 +1,260 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>  
+	  
+  	金丝雀发布 - Redmagic
+  	
+	</title>
+
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link href="atom.xml" rel="alternate" title="Redmagic" type="application/atom+xml">
+
+	<link href="asset/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<link href="asset/stylesheets/font-awesome.min.css" media="screen, projection" rel="stylesheet" type="text/css">
+	<script src="asset/javascripts/jquery.min.js"></script>
+	<script src="asset/highlightjs/highlight.pack.js"></script>
+	<link href="asset/highlightjs/styles/solarized_dark.css" media="screen, projection" rel="stylesheet" type="text/css">
+<script>hljs.initHighlightingOnLoad();</script>
+
+	<!--[if lt IE 9]><script src="asset/javascripts/html5.js"></script><![endif]-->
+	<!-- <link href='http://fonts.googleapis.com/css?family=Nunito:400,300,700' rel='stylesheet' type='text/css'> -->
+	<style type="text/css">
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 300;
+  src: local('Nunito-Light'), url(asset/font/1TiHc9yag0wq3lDO9cw0voX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Nunito-Regular'), url(asset/font/6TbRXKWJjpj6V2v_WyRbMX-_kf6ByYO6CLYdB4HQE-Y.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+/* latin */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  src: local('Nunito-Bold'), url(asset/font/TttUCfJ272GBgSKaOaD7KoX0hVgzZQUfRDuZrPvH3D8.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}
+	</style>
+	
+	<style type="text/css">
+	.container .left-col{ opacity: 1;}
+	#pagenavi a{ font-size: 1.3em;}
+	#pagenavi .next:before{ top: 3px;}
+	#pagenavi .prev:before{ top: 3px;}
+	.container .mid-col .mid-col-container #content .archives .title{ font-size: 1.5em;}
+	.container .mid-col .mid-col-container #content article{ padding: 15px 0px;}
+	#header .subtitle {
+		line-height: 1.2em;
+		padding-top: 8px;
+	}
+	article pre{ background: none; border: none; padding: 0;}
+	article .entry-content{text-align: left;}
+	.share-comment{ padding: 25px 0px; clear: both;}
+	hr{ margin: 20px 0px;border: 0; border-top:solid 1px #ddd;}
+	</style>
+  
+
+</head>
+
+
+<body>
+	<div class="container">
+		<div class="left-col">
+			<div class="intrude-less">
+				<header id="header" class="inner">
+				 
+					
+					<h1><a href="index.html">Redmagic</a></h1>
+					<p class="subtitle">FFFF</p>
+					<nav id="main-nav">
+						<ul class="main">
+						
+						  <li id=""><a target="self" href="index.html">Home</a></li>
+						
+						  <li id=""><a target="_self" href="archives.html">Archives</a></li>
+						
+						</ul>
+					</nav>
+
+					<nav id="sub-nav">
+						<div class="social">
+
+
+
+
+
+
+
+
+
+
+
+
+
+								
+
+								<a class="rss" href="atom.xml" title="RSS">RSS</a>
+							
+						</div>
+					</nav>
+				</header>				
+			</div>
+		</div>	
+		<div class="mid-col">
+			<div class="mid-col-container"> <div id="content" class="inner">
+
+	<article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+		<h1 class="title" itemprop="name">金丝雀发布</h1>
+		<div class="entry-content" itemprop="articleBody">
+			<p>金丝雀部署（Canary Deployments）在知乎落地差不多一年时间，通过金丝雀避免了很多线上的问题，相比之前的发布模型，极大降低了部署的风险。知乎是非常推崇 Devops 的公司，金丝雀发布作为 Devops 一种实践自然不会落下。但是由于基础设施变得越来越抽象和复杂，理解整个部署的工作流程已经变得比较困难，正好有机会给新的同事科普一下金丝雀发布的架构。</p>
+
+<p>相传上个世纪煤矿工人在作业时，为了避免瓦斯中毒会随身带一只金丝雀下到矿洞，由于金丝雀对二氧化碳非常敏感，所以看到金丝雀昏厥的时候矿工们就知道该逃生了。[1]</p>
+
+<p>金丝雀发布就是用生产环境一小部分流量验证应用的一种方法。从这个名字的由来也可以看到，金丝雀发布并不是完美的，如果代码出现问题，那么背用作测试的小部分流量会出错，就跟矿坑中昏厥的金丝雀一样。这种做法在非常敏感的业务中几乎无法接受，但是当系统复杂的到一定程度，错误无法完全避免的时候，为了避免出现更大的问题，牺牲一小部分流量，就可以将大部分错误的影响控制在一定范围内。</p>
+
+<h3 id="toc_0">金丝雀发布的步骤</h3>
+
+<p>一个典型的金丝雀发布大概包含以下步骤[2]：</p>
+
+<ol>
+<li>准备好发布用的 artifact</li>
+<li>从负载均衡器上移除金丝雀服务器</li>
+<li>升级金丝雀服务器</li>
+<li>最应用进行自动化测试</li>
+<li>将金丝雀服务器加入到负载均衡列表中</li>
+<li>升级剩余的服务版本</li>
+</ol>
+
+<p>在知乎，负载均衡器采用的 HAProxy，并且依赖 Consul 作服务注册发现。而服务器可能是一台物理机也可能是 bay 上一个抽象的容器组。</p>
+
+<p><img src="media/14807508681806/Canary%20Deployments.png" alt="Canary Deployments"/></p>
+
+<ul>
+<li>对于物理机，我们可以单独为其配置一个一台独立的服务器，通过在 HAProxy 上设置不同于 Production 服务器的权重来控制测试流量。但是这种方法不够方便，做自动化也难一些</li>
+<li>对于容器相对简单，我们复制一个 Production 版本的容器组，然后通过控制 Production 和 Canary 容器组的数量就可以控制流量。</li>
+</ul>
+
+<p>整个过程是部署系统在中间协调，当我们上线发布完成，部署系统会移除金丝雀服务器，让应用回到 Normal 状态。</p>
+
+<p>如果遇到问题需要回滚，只需要将金丝雀容器组从 HAProxy 上摘掉就可以，基本上可以在几秒内完成。</p>
+
+<h3 id="toc_1">HAProxy</h3>
+
+<p>在整个金丝雀发布的架构中，HAProxy 是非常重要的一个组件，要发现后端的服务地址，并动态控制金丝雀和线上的流量比例。部署时我们并不会直接操作 HAProxy，而是更新 Consul 上的注册信息，通过事件广播告诉 HAProxy 服务地址有变化，这一过程通过 <code>consul-template</code> 完成。</p>
+
+<p><img src="media/14807508681806/consul.png" alt="consu"/><br/>
+HAProxy 自己也会注册到 Cosnul，伪装成服务的后端被调用，而服务自身则注册成 <code>服务名 + --instance</code>，在我们内部的 Consul 控制台可以看到。</p>
+
+<p>每个服务都有自己独立的 HAproxy 集群，分布在不同的机器上，每个 HAProxy 只知道自己代理的服务的地址。这样做的好处是单个 HAProxy 崩溃不会影响业务，一组 HAProxy 负载高不会把故障扩散到整个集群。另外附带的一个好处是当我们更新服务注册地址时，不会 reload 整个 HAProxy 集群，只要更新对应的 HAProxy 实例就可以，一定程度上可以规避惊群问题。</p>
+
+<p>HAProxy 的地址通过客户端服务发现获得，客户端发现多个 HAProxy 地址并可以做简单的负载均衡，将请求压力分摊到多个 HAProxy 实例上。</p>
+
+<p>采用类似方案的公司是 Airbnb，不过他们的做法是把 HAProxy 作为一个 Agent 跑在服务器上，HAProxy 更靠近客户端[3]。</p>
+
+<h3 id="toc_2">金丝雀发布的监控</h3>
+
+<p>有了金丝雀发布后，我们还得能区分金丝雀和线上的监控数据，以此判断服务是否正常。</p>
+
+<p>由于有了 zone 和 tzone 框架对监控的支持，这件事推起来相对简单。我们在部署时将服务当前所在的环境注入到环境变量中，然后根据环境变量来决定指标的名称。</p>
+
+<p>比如一个正常的指标名称是:</p>
+
+<pre><code>production.span.multimedia.server.APIUploadHandler_post.request_time
+</code></pre>
+
+<p>在金丝雀环境中的名称则是:</p>
+
+<pre><code>canary.span.multimedia.server.APIUploadHandler_post.request_time
+</code></pre>
+
+<p>最后我们可以在 Halo 对比服务在金丝雀和生产的表现有何差别：</p>
+
+<p><img src="media/14807508681806/14808361124276.jpg" alt=""/></p>
+
+<h3 id="toc_3">Reference</h3>
+
+<p>[1] 金丝雀发布的由来: <a href="https://blog.ccjeng.com/2015/06/canary-deployment.html">https://blog.ccjeng.com/2015/06/canary-deployment.html</a><br/>
+[2] 在生产中使用金丝雀部署来进行测试: <a href="http://www.infoq.com/cn/news/2013/03/canary-release-improve-quality">http://www.infoq.com/cn/news/2013/03/canary-release-improve-quality</a><br/>
+[3] Service Discovery in the Cloud: <a href="http://nerds.airbnb.com/smartstack-service-discovery-cloud/">http://nerds.airbnb.com/smartstack-service-discovery-cloud/</a></p>
+
+		</div>
+	</article>
+	<div class="share-comment">
+	 <div id="disqus_thread></div>
+<script>
+
+/**
+ *  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+ *  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+    this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+    this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+    var d = document, s = d.createElement('script');
+    s.src = '//lfyzjck.disqus.com/embed.js';
+    s.setAttribute('data-timestamp', +new Date());
+    (d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+	  
+	    <div id="disqus_thread"></div>
+	  
+
+	  
+
+	</div>
+</div>        </div>
+			<footer id="footer" class="inner">Copyright &copy; 2014
+Powered by <a target="_blank" href="http://www.mweb.im">MWeb</a> &nbsp;&nbsp; 
+Theme by <a href="http://shashankmehta.in/archive/2012/greyshade.html">Shashank Mehta</a>
+      </footer>
+		</div>
+	</div>
+
+
+<script type="text/javascript">
+    var disqus_shortname = 'lfyzjck'; 
+
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+
+<script type="text/javascript">
+var disqus_shortname = 'lfyzjck'; 
+
+(function () {
+var s = document.createElement('script'); s.async = true;
+s.type = 'text/javascript';
+s.src = '//' + disqus_shortname + '.disqus.com/count.js';
+(document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+}());
+</script>
+  
+    
+<script src="asset/chart/all-min.js"></script><script type="text/javascript">$(function(){    var mwebii=0;    var mwebChartEleId = 'mweb-chart-ele-';    $('pre>code').each(function(){        mwebii++;        var eleiid = mwebChartEleId+mwebii;        if($(this).hasClass('language-sequence')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = Diagram.parse($(this).text());            diagram.drawSVG(eleiid,{theme: 'simple'});        }else if($(this).hasClass('language-flow')){            var ele = $(this).addClass('nohighlight').parent();            $('<div id="'+eleiid+'"></div>').insertAfter(ele);            ele.hide();            var diagram = flowchart.parse($(this).text());            diagram.drawSVG(eleiid);        }    });});</script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({TeX: { equationNumbers: { autoNumber: "AMS" } }});</script>
+
+</body>
+</html>

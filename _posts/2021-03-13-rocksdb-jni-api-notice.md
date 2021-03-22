@@ -1,4 +1,9 @@
-#RocksDB Java API Notice
+---
+author: lfyzjck
+title: RocksDB Java API Notice
+---
+
+# RocksDB Java API Notice
 
 最近实现的一个日志收集的服务使用了 RocksDB，项目由 Java 实现所以使用了 [rocksdbjni](https://mvnrepository.com/artifact/org.rocksdb/rocksdbjni)。网上关于 RocksDB Java 客户端的资料，除了官网 Wiki 以外意外的非常少。在这个过程中踩了非常多的坑，总结一下，希望能帮到一样在 RocksDB Java 客户端挣扎的人。
 

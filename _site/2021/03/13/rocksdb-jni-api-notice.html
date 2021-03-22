@@ -1,0 +1,812 @@
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.22.0 by Michael Rose
+  Copyright 2013-2020 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+
+<!-- begin _includes/seo.html --><title>RocksDB Java API Notice - Redmagic</title>
+<meta name="description" content="RocksDB Java API Notice">
+
+
+
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="Redmagic">
+<meta property="og:title" content="RocksDB Java API Notice">
+<meta property="og:url" content="/2021/03/13/rocksdb-jni-api-notice.html">
+
+
+  <meta property="og:description" content="RocksDB Java API Notice">
+
+
+
+
+
+
+
+  <meta property="article:published_time" content="2021-03-13T00:00:00+08:00">
+
+
+
+
+
+
+<link rel="canonical" href="/2021/03/13/rocksdb-jni-api-notice.html">
+
+
+
+
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Person",
+      "name": null,
+      "url": "/"
+    
+  }
+</script>
+
+
+
+
+
+
+<!-- end _includes/seo.html -->
+
+
+
+  <link href="/feed.xml" type="application/atom+xml" rel="alternate" title="Redmagic Feed">
+
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css">
+
+<!--[if IE]>
+  <style>
+    /* old IE unsupported flexbox fixes */
+    .greedy-nav .site-title {
+      padding-right: 3em;
+    }
+    .greedy-nav button {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 100%;
+    }
+  </style>
+<![endif]-->
+
+
+    <!-- start custom head snippets -->
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single">
+    <nav class="skip-links">
+  <h2 class="screen-reader-text">Skip links</h2>
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+
+    <!--[if lt IE 9]>
+<div class="notice--danger align-center" style="margin: 0;">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience.</div>
+<![endif]-->
+
+    
+
+<div class="masthead">
+  <div class="masthead__inner-wrap">
+    <div class="masthead__menu">
+      <nav id="site-nav" class="greedy-nav">
+        
+        <a class="site-title" href="/">
+          Redmagic
+          
+        </a>
+        <ul class="visible-links"></ul>
+        
+        <button class="greedy-nav__toggle hidden" type="button">
+          <span class="visually-hidden">Toggle menu</span>
+          <div class="navicon"></div>
+        </button>
+        <ul class="hidden-links hidden"></ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+
+    <div class="initial-content">
+      
+
+
+
+<div id="main" role="main">
+  
+  <div class="sidebar sticky">
+  
+
+
+<div itemscope itemtype="https://schema.org/Person">
+
+  
+
+  <div class="author__content">
+    
+      <h3 class="author__name" itemprop="name"></h3>
+    
+    
+  </div>
+
+  <div class="author__urls-wrapper">
+    <button class="btn btn--inverse">Follow</button>
+    <ul class="author__urls social-icons">
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      <!--
+  <li>
+    <a href="http://link-to-whatever-social-network.com/user/" itemprop="sameAs" rel="nofollow noopener noreferrer">
+      <i class="fas fa-fw" aria-hidden="true"></i> Custom Social Profile Link
+    </a>
+  </li>
+-->
+    </ul>
+  </div>
+</div>
+
+  
+  </div>
+
+
+
+  <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
+    <meta itemprop="headline" content="RocksDB Java API Notice">
+    <meta itemprop="description" content="RocksDB Java API Notice">
+    <meta itemprop="datePublished" content="2021-03-13T00:00:00+08:00">
+    
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          <h1 id="page-title" class="page__title" itemprop="headline">RocksDB Java API Notice
+</h1>
+          
+
+  <p class="page__meta">
+    
+
+    
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          3 minute read
+        
+      </span>
+    
+  </p>
+
+
+        </header>
+      
+
+      <section class="page__content" itemprop="text">
+        
+        <h1 id="rocksdb-java-api-notice">RocksDB Java API Notice</h1>
+
+<p>最近实现的一个日志收集的服务使用了 RocksDB，项目由 Java 实现所以使用了 <a href="https://mvnrepository.com/artifact/org.rocksdb/rocksdbjni">rocksdbjni</a>。网上关于 RocksDB Java 客户端的资料，除了官网 Wiki 以外意外的非常少。在这个过程中踩了非常多的坑，总结一下，希望能帮到一样在 RocksDB Java 客户端挣扎的人。</p>
+
+<h3 id="jni-简介">JNI 简介</h3>
+
+<p>JNI 是 JVM 调用原生（Native）C/C++ 的规范。在遇到 Java 无法解决的某些场景时会非常有用：比如某些平台相关的库或者接口。JNI 允许在 Native 方法创建或者使用 Java 的对象提供的方法。</p>
+
+<h3 id="try-with-resource">Try-with-resource</h3>
+
+<p>由于 JNI 产生的对象本质上的 Native 对象，JVM 自己并不知道 C/C++ 的堆，这些 Native 对象都是堆 GC 不可见的，也无法被 GC 回收。在 RocksJava 中，所有的 Object 都继承自 <code class="language-plaintext highlighter-rouge">AbstractNativeReference</code></p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">abstract</span> <span class="kd">class</span> <span class="nc">AbstractNativeReference</span> <span class="kd">implements</span> <span class="nc">AutoCloseable</span> <span class="o">{</span>
+
+  <span class="kd">protected</span> <span class="kd">abstract</span> <span class="kt">boolean</span> <span class="nf">isOwningHandle</span><span class="o">();</span>
+
+  <span class="cm">/**
+   * Frees the underlying C++ object
+   * &lt;p&gt;
+   * It is strong recommended that the developer calls this after they
+   * have finished using the object.&lt;/p&gt;
+   * &lt;p&gt;
+   * Note, that once an instance of {@link AbstractNativeReference} has been
+   * disposed, calling any of its functions will lead to undefined
+   * behavior.&lt;/p&gt;
+   */</span>
+  <span class="nd">@Override</span>
+  <span class="kd">public</span> <span class="kd">abstract</span> <span class="kt">void</span> <span class="nf">close</span><span class="o">();</span>
+
+  <span class="cm">/**
+   * @deprecated Instead use {@link AbstractNativeReference#close()}
+   */</span>
+  <span class="nd">@Deprecated</span>
+  <span class="kd">public</span> <span class="kd">final</span> <span class="kt">void</span> <span class="nf">dispose</span><span class="o">()</span> <span class="o">{</span>
+    <span class="n">close</span><span class="o">();</span>
+  <span class="o">}</span>
+
+  <span class="cm">/**
+   * Simply calls {@link AbstractNativeReference#dispose()} to free
+   * any underlying C++ object reference which has not yet been manually
+   * released.
+   *
+   * @deprecated You should not rely on GC of Rocks objects, and instead should
+   * either call {@link AbstractNativeReference#close()} manually or make
+   * use of some sort of ARM (Automatic Resource Management) such as
+   * Java 7's &lt;a href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html"&gt;try-with-resources&lt;/a&gt;
+   * statement
+   */</span>
+  <span class="nd">@Override</span>
+  <span class="nd">@Deprecated</span>
+  <span class="kd">protected</span> <span class="kt">void</span> <span class="nf">finalize</span><span class="o">()</span> <span class="kd">throws</span> <span class="nc">Throwable</span> <span class="o">{</span>
+    <span class="k">if</span><span class="o">(</span><span class="n">isOwningHandle</span><span class="o">())</span> <span class="o">{</span>
+      <span class="c1">//TODO(AR) log a warning message... developer should have called close()</span>
+    <span class="o">}</span>
+    <span class="n">dispose</span><span class="o">();</span>
+    <span class="kd">super</span><span class="o">.</span><span class="na">finalize</span><span class="o">();</span>
+  <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">AbstractNativeReference</code> 维护了到 Native 对象的指针，其中 <code class="language-plaintext highlighter-rouge">finalize</code> 方法代理的 <code class="language-plaintext highlighter-rouge">close</code> 方法用于回收 native 对象的内存。虽然这样可以保证在 <code class="language-plaintext highlighter-rouge">AbstractNativeReference</code> 被 GC 时也能回收掉 Native 内存，但是由于 JVM 感知不到 C/C++ 的堆使用，这样做显然不利于内存管理。更好的方式时每次使用 <code class="language-plaintext highlighter-rouge">AbstractNativeReference</code> 时都显式的调用 <code class="language-plaintext highlighter-rouge">close</code> 方法释放 native 内存。</p>
+
+<p>JDK 7 中引入的新语法 <a href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html">try-with-resource</a> 允许所有实现了 <code class="language-plaintext highlighter-rouge">java.lang.AutoCloseable</code> 的对象被看作资源（resource），在 <code class="language-plaintext highlighter-rouge">finally</code> 块执行的时候隐式调用 <code class="language-plaintext highlighter-rouge">close()</code> 来关闭资源。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">static</span> <span class="nc">String</span> <span class="nf">readFirstLineFromFile</span><span class="o">(</span><span class="nc">String</span> <span class="n">path</span><span class="o">)</span> <span class="kd">throws</span> <span class="nc">IOException</span> <span class="o">{</span>
+    <span class="k">try</span> <span class="o">(</span><span class="nc">BufferedReader</span> <span class="n">br</span> <span class="o">=</span>
+                   <span class="k">new</span> <span class="nf">BufferedReader</span><span class="o">(</span><span class="k">new</span> <span class="nc">FileReader</span><span class="o">(</span><span class="n">path</span><span class="o">)))</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">br</span><span class="o">.</span><span class="na">readLine</span><span class="o">();</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>try-with-resource 语法很好的解决了我们需要及时释放 native 内存的需求，于是操作 RocksJava 的代码变成了:</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">org.rocksdb.RocksDB</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.rocksdb.RocksDBException</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.rocksdb.Options</span><span class="o">;</span>
+<span class="o">...</span>
+  <span class="c1">// a static method that loads the RocksDB C++ library.</span>
+  <span class="nc">RocksDB</span><span class="o">.</span><span class="na">loadLibrary</span><span class="o">();</span>
+
+  <span class="c1">// the Options class contains a set of configurable DB options</span>
+  <span class="c1">// that determines the behaviour of the database.</span>
+  <span class="k">try</span> <span class="o">(</span><span class="kd">final</span> <span class="nc">Options</span> <span class="n">options</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Options</span><span class="o">().</span><span class="na">setCreateIfMissing</span><span class="o">(</span><span class="kc">true</span><span class="o">))</span> <span class="o">{</span>
+    
+    <span class="c1">// a factory method that returns a RocksDB instance</span>
+    <span class="k">try</span> <span class="o">(</span><span class="kd">final</span> <span class="nc">RocksDB</span> <span class="n">db</span> <span class="o">=</span> <span class="nc">RocksDB</span><span class="o">.</span><span class="na">open</span><span class="o">(</span><span class="n">options</span><span class="o">,</span> <span class="s">"path/to/db"</span><span class="o">))</span> <span class="o">{</span>
+    
+        <span class="c1">// do something</span>
+    <span class="o">}</span>
+  <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">RocksDBException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+    <span class="c1">// do some error handling</span>
+    <span class="o">...</span>
+  <span class="o">}</span>
+<span class="o">...</span>
+</code></pre></div></div>
+
+<p>其中 <code class="language-plaintext highlighter-rouge">options</code> 和 <code class="language-plaintext highlighter-rouge">db</code> 对象都是 <code class="language-plaintext highlighter-rouge">AbstractNativeReference</code> ，通过 try-with-resource 的语法可以很好的避免忘记调用 close 的情况出现。</p>
+
+<h3 id="check-status-after-every-operation-when-using-iterator">Check status() after every operation When using iterator</h3>
+
+<p>在使用 Iterator 时，有些 RocksDB 内部的错误不会随着调用立即抛出。所以光检查 <code class="language-plaintext highlighter-rouge">iterator→isValid()</code> 还不够。比较好的做法是封装一个 IteratorWrapper，在每次操作后做一次检查，可以避免很多潜在的问题。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">class</span> <span class="nc">RocksIteratorWrapper</span> <span class="kd">implements</span> <span class="nc">RocksIteratorInterface</span><span class="o">,</span> <span class="nc">Closeable</span>
+<span class="o">{</span>
+
+    <span class="kd">private</span> <span class="nc">RocksIterator</span> <span class="n">iterator</span><span class="o">;</span>
+
+    <span class="kd">public</span> <span class="nf">RocksIteratorWrapper</span><span class="o">(</span><span class="nd">@Nonnull</span> <span class="nc">RocksIterator</span> <span class="n">iterator</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">iterator</span> <span class="o">=</span> <span class="n">iterator</span><span class="o">;</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">boolean</span> <span class="nf">isValid</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">this</span><span class="o">.</span><span class="na">iterator</span><span class="o">.</span><span class="na">isValid</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">seekToFirst</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">seekToFirst</span><span class="o">();</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">seekToLast</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">seekToFirst</span><span class="o">();</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">seek</span><span class="o">(</span><span class="kt">byte</span><span class="o">[]</span> <span class="n">target</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">seek</span><span class="o">(</span><span class="n">target</span><span class="o">);</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">seek</span><span class="o">(</span><span class="nc">ByteBuffer</span> <span class="n">target</span><span class="o">)</span>
+    <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">seek</span><span class="o">(</span><span class="n">target</span><span class="o">);</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">seekForPrev</span><span class="o">(</span><span class="nc">ByteBuffer</span> <span class="n">target</span><span class="o">)</span>
+    <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">seekForPrev</span><span class="o">(</span><span class="n">target</span><span class="o">);</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">refresh</span><span class="o">()</span>
+            <span class="kd">throws</span> <span class="nc">RocksDBException</span>
+    <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">refresh</span><span class="o">();</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">seekForPrev</span><span class="o">(</span><span class="kt">byte</span><span class="o">[]</span> <span class="n">target</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">seekForPrev</span><span class="o">(</span><span class="n">target</span><span class="o">);</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">next</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">next</span><span class="o">();</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">prev</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">prev</span><span class="o">();</span>
+        <span class="n">status</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">status</span><span class="o">(){</span>
+        <span class="k">try</span> <span class="o">{</span>
+            <span class="n">iterator</span><span class="o">.</span><span class="na">status</span><span class="o">();</span>
+        <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">RocksDBException</span> <span class="n">ex</span><span class="o">)</span> <span class="o">{</span>
+            <span class="k">throw</span> <span class="k">new</span> <span class="nf">LoghubRuntimeException</span><span class="o">(</span><span class="s">"Internal exception found in RocksDB"</span><span class="o">,</span> <span class="n">ex</span><span class="o">);</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+
+    <span class="kd">public</span> <span class="kt">byte</span><span class="o">[]</span> <span class="nf">key</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">iterator</span><span class="o">.</span><span class="na">key</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="kd">public</span> <span class="kt">byte</span><span class="o">[]</span> <span class="nf">value</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">iterator</span><span class="o">.</span><span class="na">value</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">close</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">iterator</span><span class="o">.</span><span class="na">close</span><span class="o">();</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<h3 id="reuse-jni-object">Reuse JNI Object</h3>
+
+<p>虽然 try-with-resource 的语法能保证 JVM 及时释放 native 内存，但是创建 Native 对象仍然有不少额外开销，尤其是会随着用户请求放大的操作。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">class</span> <span class="nc">RocksDBWrapper</span> <span class="o">{</span>
+  <span class="kd">public</span> <span class="kt">void</span> <span class="nf">put</span><span class="o">(</span><span class="kt">byte</span><span class="o">[]</span> <span class="n">key</span><span class="o">,</span> <span class="kt">byte</span><span class="o">[]</span> <span class="n">value</span><span class="o">)</span> <span class="o">{</span>
+		<span class="k">try</span> <span class="o">(</span><span class="kd">final</span> <span class="nc">WriteOptions</span> <span class="n">options</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">WriteOptions</span><span class="o">()){</span>  
+		    <span class="n">db</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="n">options</span><span class="o">,</span> <span class="n">key</span><span class="o">,</span> <span class="n">value</span><span class="o">);</span>
+		<span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">RocksDBException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+		  <span class="c1">// error handling</span>
+		<span class="o">}</span>
+  <span class="o">}</span>
+<span class="o">}</span>
+
+<span class="c1">// reuse WriteOptions</span>
+<span class="kd">class</span> <span class="nc">RocksDBWrapper</span> <span class="o">{</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nc">WriteOptions</span> <span class="n">options</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">WriteOptions</span><span class="o">();</span>
+  <span class="kd">public</span> <span class="kt">void</span> <span class="nf">put</span><span class="o">(</span><span class="kt">byte</span><span class="o">[]</span> <span class="n">key</span><span class="o">,</span> <span class="kt">byte</span><span class="o">[]</span> <span class="n">value</span><span class="o">)</span> <span class="o">{</span>
+		<span class="k">try</span> <span class="o">{</span>  
+		    <span class="n">db</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="n">options</span><span class="o">,</span> <span class="n">key</span><span class="o">,</span> <span class="n">value</span><span class="o">);</span>
+		<span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">RocksDBException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+		  <span class="c1">// error handling</span>
+		<span class="o">}</span>
+  <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<h3 id="avoid-using-custom-java-comparator">Avoid Using Custom Java Comparator</h3>
+
+<p>Comparator 是 RocksDB 中一个比较重要的概念，它的实现决定了 key 的存储的顺序。默认的Comparator 是 ByteWiseComparator，对于 string 类型的 key 来说，ByteWiseComparator 就是字典序。</p>
+
+<p>RocksJava API 中有一个抽象的 <code class="language-plaintext highlighter-rouge">AbstractComparator</code> 允许 Java 用户自定义 Comparator 的实现。比如我们可以为 Long 类型的 Key 实现一个自定义的 Comparator：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">class</span> <span class="nc">LongValueComparator</span>
+        <span class="kd">extends</span> <span class="nc">AbstractComparator</span>
+<span class="o">{</span>
+
+    <span class="kd">public</span> <span class="nf">LongValueComparator</span><span class="o">()</span>
+    <span class="o">{</span>
+        <span class="kd">super</span><span class="o">(</span><span class="k">new</span> <span class="nc">ComparatorOptions</span><span class="o">().</span><span class="na">setUseDirectBuffer</span><span class="o">(</span><span class="kc">true</span><span class="o">));</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">String</span> <span class="nf">name</span><span class="o">()</span>
+    <span class="o">{</span>
+        <span class="k">return</span> <span class="s">"LongValueComparator"</span><span class="o">;</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">int</span> <span class="nf">compare</span><span class="o">(</span><span class="nc">ByteBuffer</span> <span class="n">a</span><span class="o">,</span> <span class="nc">ByteBuffer</span> <span class="n">b</span><span class="o">)</span>
+    <span class="o">{</span>
+        <span class="nc">Long</span> <span class="n">keyA</span> <span class="o">=</span> <span class="nc">Longs</span><span class="o">.</span><span class="na">fromByteArray</span><span class="o">(</span><span class="n">a</span><span class="o">.</span><span class="na">array</span><span class="o">());</span>
+        <span class="nc">Long</span> <span class="n">keyB</span> <span class="o">=</span> <span class="nc">Longs</span><span class="o">.</span><span class="na">fromByteArray</span><span class="o">(</span><span class="n">b</span><span class="o">.</span><span class="na">array</span><span class="o">());</span>
+        <span class="k">return</span> <span class="nc">Long</span><span class="o">.</span><span class="na">compare</span><span class="o">(</span><span class="n">keyA</span><span class="o">,</span> <span class="n">keyB</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<blockquote>
+  <p>RocksDB 在 6.8 版本出于性能原因<a href="https://github.com/facebook/rocksdb/pull/6252">修改了 RocksJava 的 Comparator 接口</a>，参数类型从 Slice 改为 ByteBuffer</p>
+</blockquote>
+
+<p>但是由于 Comparator 不论在写入还是读取，包括 MemTable flush 时都会频繁调用。JNI 调用的 Overhead 会被无限放大，导致 Java 实现的 Comparator 性能非常糟糕。官方 benchmark 的结果是性能差距在 5~6 倍之间。所以不论出于什么原因都不建议用 Java 实现自己的 Comparator，保持默认值，在 Serde 层做自己想做的事情。下图是通过 Java 实现 Comparator 后，FlushMemTable 的火焰图：</p>
+
+<p><img src="https://s3-us-west-2.amazonaws.com/secure.notion-static.com/4f42422e-4f35-4792-ae10-308d078f0051/Untitled.png" alt="https://s3-us-west-2.amazonaws.com/secure.notion-static.com/4f42422e-4f35-4792-ae10-308d078f0051/Untitled.png" /></p>
+
+<h3 id="monitor-rocksdb">Monitor RocksDB</h3>
+
+<p>由于 JNI 的存在，Native 内存的使用不会出现你的 JVM 监控中，既不是 Heap 也不是 Non-Heap，所以针对使用了 RocksDB 的 Java 应用，必须将进程的 Memory 监控起来。简单说来就是：</p>
+
+<p>Native Memory = Process Memory - ( JVM Heap + JVM Non-Heap + DirectBuffer)</p>
+
+<p>上面公式不准确，这部分内存还包括线程的栈空间以及 Metaspace 等区域的内存，不过用作估算足够用了。</p>
+
+<p>另外 RocksDB 提供了 Statistics 类来存储一些统计信息，我们可以将这些信息导出到应用的 Metrics 中。</p>
+
+<p><img src="https://s3-us-west-2.amazonaws.com/secure.notion-static.com/5e741471-da11-4895-bf76-3bf7cf161b78/Untitled.png" alt="https://s3-us-west-2.amazonaws.com/secure.notion-static.com/5e741471-da11-4895-bf76-3bf7cf161b78/Untitled.png" /></p>
+
+<h3 id="总结">总结</h3>
+
+<p>网上关于 RocksJava 的讨论不多，希望这个总结对你有帮助。如果有什么遗漏的，欢迎评论。</p>
+
+<h3 id="reference">Reference</h3>
+
+<ul>
+  <li>RocksJava Basics <a href="https://github.com/facebook/rocksdb/wiki/RocksJava-Basics">https://github.com/facebook/rocksdb/wiki/RocksJava-Basics</a></li>
+  <li>The try-with-resources Statement <a href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html">https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html</a></li>
+  <li>JNI wikipedia: <a href="https://zh.wikipedia.org/wiki/Java%E6%9C%AC%E5%9C%B0%E6%8E%A5%E5%8F%A3">https://zh.wikipedia.org/wiki/Java本地接口</a></li>
+</ul>
+
+
+        
+      </section>
+
+      <footer class="page__meta">
+        
+        
+
+
+        
+  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2021-03-13T00:00:00+08:00">March 13, 2021</time></p>
+
+
+      </footer>
+
+      <section class="page__share">
+  
+
+  <a href="https://twitter.com/intent/tweet?text=RocksDB+Java+API+Notice%20%2F2021%2F03%2F13%2Frocksdb-jni-api-notice.html" class="btn btn--twitter" onclick="window.open(this.href, 'window', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on Twitter"><i class="fab fa-fw fa-twitter" aria-hidden="true"></i><span> Twitter</span></a>
+
+  <a href="https://www.facebook.com/sharer/sharer.php?u=%2F2021%2F03%2F13%2Frocksdb-jni-api-notice.html" class="btn btn--facebook" onclick="window.open(this.href, 'window', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on Facebook"><i class="fab fa-fw fa-facebook" aria-hidden="true"></i><span> Facebook</span></a>
+
+  <a href="https://www.linkedin.com/shareArticle?mini=true&url=%2F2021%2F03%2F13%2Frocksdb-jni-api-notice.html" class="btn btn--linkedin" onclick="window.open(this.href, 'window', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on LinkedIn"><i class="fab fa-fw fa-linkedin" aria-hidden="true"></i><span> LinkedIn</span></a>
+</section>
+
+
+      
+  <nav class="pagination">
+    
+      <a href="/2020/06/07/ansible-quick-start.html" class="pagination--pager" title="Ansible 快速入门
+">Previous</a>
+    
+    
+      <a href="#" class="pagination--pager disabled">Next</a>
+    
+  </nav>
+
+    </div>
+
+    
+  </article>
+
+  
+  
+    <div class="page__related">
+      <h4 class="page__related-title">You May Also Enjoy</h4>
+      <div class="grid__wrapper">
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/2020/06/07/ansible-quick-start.html" rel="permalink">Ansible 快速入门
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+
+    
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          5 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">Ansible 快速入门
+</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/2019/09/10/hive-locks.html" rel="permalink">Hive 锁机制
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+
+    
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          2 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">Hive 锁机制
+</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/2018/11/14/datasync-practice-in-zhihu.html" rel="permalink">大数据平台的数据同步服务实践
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+
+    
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          1 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">大数据平台的数据同步服务实践
+</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/2018/07/05/sqoop-cheatsheet.html" rel="permalink">Sqoop 使用指南
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+
+    
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          3 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">Sqoop 使用指南
+</p>
+  </article>
+</div>
+
+        
+      </div>
+    </div>
+  
+  
+</div>
+
+    </div>
+
+    
+
+    <div id="footer" class="page__footer">
+      <footer>
+        <!-- start custom footer snippets -->
+
+<!-- end custom footer snippets -->
+        <div class="page__footer-follow">
+  <ul class="social-icons">
+    
+
+    
+
+    
+      <li><a href="/feed.xml"><i class="fas fa-fw fa-rss-square" aria-hidden="true"></i> Feed</a></li>
+    
+  </ul>
+</div>
+
+<div class="page__footer-copyright">&copy; 2021 Redmagic. Powered by <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://mademistakes.com/work/minimal-mistakes-jekyll-theme/" rel="nofollow">Minimal Mistakes</a>.</div>
+
+      </footer>
+    </div>
+
+    
+  <script src="/assets/js/main.min.js"></script>
+
+
+
+
+
+
+
+
+
+
+  </body>
+</html>

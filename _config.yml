@@ -1,3 +1,33 @@
-theme: jekyll-theme-slate
 title: Redmagic
 description: Programing, Bigdata, Engineering-Productivity
+
+page_excerpts: true
+markdown: kramdown
+highlighter: rouge
+remote_theme: "mmistakes/minimal-mistakes@4.22.0"
+show_downloads: false
+
+github:
+  repository_url: https://github.com/lfyzjck
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-paginate
+  - jekyll-sitemap
+  - jekyll-gist
+  - jekyll-feed
+  - jekyll-include-cache
+
+
+defaults:
+  # _posts
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: single
+      author_profile: true
+      read_time: true
+      comments: true
+      share: true
+      related: true

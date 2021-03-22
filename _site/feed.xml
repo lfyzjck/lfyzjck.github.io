@@ -1,0 +1,2040 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.2.0">Jekyll</generator><link href="/feed.xml" rel="self" type="application/atom+xml" /><link href="/" rel="alternate" type="text/html" /><updated>2021-03-22T12:37:02+08:00</updated><id>/feed.xml</id><title type="html">Redmagic</title><subtitle>Programing, Bigdata, Engineering-Productivity</subtitle><entry><title type="html">RocksDB Java API Notice</title><link href="/2021/03/13/rocksdb-jni-api-notice.html" rel="alternate" type="text/html" title="RocksDB Java API Notice" /><published>2021-03-13T00:00:00+08:00</published><updated>2021-03-13T00:00:00+08:00</updated><id>/2021/03/13/rocksdb-jni-api-notice</id><content type="html" xml:base="/2021/03/13/rocksdb-jni-api-notice.html">&lt;h1 id=&quot;rocksdb-java-api-notice&quot;&gt;RocksDB Java API Notice&lt;/h1&gt;
+
+&lt;p&gt;最近实现的一个日志收集的服务使用了 RocksDB，项目由 Java 实现所以使用了 &lt;a href=&quot;https://mvnrepository.com/artifact/org.rocksdb/rocksdbjni&quot;&gt;rocksdbjni&lt;/a&gt;。网上关于 RocksDB Java 客户端的资料，除了官网 Wiki 以外意外的非常少。在这个过程中踩了非常多的坑，总结一下，希望能帮到一样在 RocksDB Java 客户端挣扎的人。&lt;/p&gt;
+
+&lt;h3 id=&quot;jni-简介&quot;&gt;JNI 简介&lt;/h3&gt;
+
+&lt;p&gt;JNI 是 JVM 调用原生（Native）C/C++ 的规范。在遇到 Java 无法解决的某些场景时会非常有用：比如某些平台相关的库或者接口。JNI 允许在 Native 方法创建或者使用 Java 的对象提供的方法。&lt;/p&gt;
+
+&lt;h3 id=&quot;try-with-resource&quot;&gt;Try-with-resource&lt;/h3&gt;
+
+&lt;p&gt;由于 JNI 产生的对象本质上的 Native 对象，JVM 自己并不知道 C/C++ 的堆，这些 Native 对象都是堆 GC 不可见的，也无法被 GC 回收。在 RocksJava 中，所有的 Object 都继承自 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AbstractNativeReference&lt;/code&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;abstract&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;AbstractNativeReference&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;implements&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;AutoCloseable&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+
+  &lt;span class=&quot;kd&quot;&gt;protected&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;abstract&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;boolean&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;isOwningHandle&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/**
+   * Frees the underlying C++ object
+   * &amp;lt;p&amp;gt;
+   * It is strong recommended that the developer calls this after they
+   * have finished using the object.&amp;lt;/p&amp;gt;
+   * &amp;lt;p&amp;gt;
+   * Note, that once an instance of {@link AbstractNativeReference} has been
+   * disposed, calling any of its functions will lead to undefined
+   * behavior.&amp;lt;/p&amp;gt;
+   */&lt;/span&gt;
+  &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+  &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;abstract&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;close&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/**
+   * @deprecated Instead use {@link AbstractNativeReference#close()}
+   */&lt;/span&gt;
+  &lt;span class=&quot;nd&quot;&gt;@Deprecated&lt;/span&gt;
+  &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;final&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;dispose&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;close&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/**
+   * Simply calls {@link AbstractNativeReference#dispose()} to free
+   * any underlying C++ object reference which has not yet been manually
+   * released.
+   *
+   * @deprecated You should not rely on GC of Rocks objects, and instead should
+   * either call {@link AbstractNativeReference#close()} manually or make
+   * use of some sort of ARM (Automatic Resource Management) such as
+   * Java 7's &amp;lt;a href=&quot;https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html&quot;&amp;gt;try-with-resources&amp;lt;/a&amp;gt;
+   * statement
+   */&lt;/span&gt;
+  &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+  &lt;span class=&quot;nd&quot;&gt;@Deprecated&lt;/span&gt;
+  &lt;span class=&quot;kd&quot;&gt;protected&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;finalize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;throws&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Throwable&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;isOwningHandle&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;())&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;c1&quot;&gt;//TODO(AR) log a warning message... developer should have called close()&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;dispose&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;super&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;finalize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AbstractNativeReference&lt;/code&gt; 维护了到 Native 对象的指针，其中 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;finalize&lt;/code&gt; 方法代理的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;close&lt;/code&gt; 方法用于回收 native 对象的内存。虽然这样可以保证在 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AbstractNativeReference&lt;/code&gt; 被 GC 时也能回收掉 Native 内存，但是由于 JVM 感知不到 C/C++ 的堆使用，这样做显然不利于内存管理。更好的方式时每次使用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AbstractNativeReference&lt;/code&gt; 时都显式的调用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;close&lt;/code&gt; 方法释放 native 内存。&lt;/p&gt;
+
+&lt;p&gt;JDK 7 中引入的新语法 &lt;a href=&quot;https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html&quot;&gt;try-with-resource&lt;/a&gt; 允许所有实现了 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;java.lang.AutoCloseable&lt;/code&gt; 的对象被看作资源（resource），在 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;finally&lt;/code&gt; 块执行的时候隐式调用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;close()&lt;/code&gt; 来关闭资源。&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;String&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;readFirstLineFromFile&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;String&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;throws&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;IOException&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;BufferedReader&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;br&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;
+                   &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;BufferedReader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;FileReader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)))&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;br&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;readLine&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;try-with-resource 语法很好的解决了我们需要及时释放 native 内存的需求，于是操作 RocksJava 的代码变成了:&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.rocksdb.RocksDB&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.rocksdb.RocksDBException&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.rocksdb.Options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// a static method that loads the RocksDB C++ library.&lt;/span&gt;
+  &lt;span class=&quot;nc&quot;&gt;RocksDB&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;loadLibrary&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+
+  &lt;span class=&quot;c1&quot;&gt;// the Options class contains a set of configurable DB options&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// that determines the behaviour of the database.&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kd&quot;&gt;final&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Options&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;().&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;setCreateIfMissing&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;true&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    
+    &lt;span class=&quot;c1&quot;&gt;// a factory method that returns a RocksDB instance&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kd&quot;&gt;final&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksDB&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;db&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksDB&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;open&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;path/to/db&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    
+        &lt;span class=&quot;c1&quot;&gt;// do something&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;catch&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;RocksDBException&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;e&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// do some error handling&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;其中 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;options&lt;/code&gt; 和 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;db&lt;/code&gt; 对象都是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AbstractNativeReference&lt;/code&gt; ，通过 try-with-resource 的语法可以很好的避免忘记调用 close 的情况出现。&lt;/p&gt;
+
+&lt;h3 id=&quot;check-status-after-every-operation-when-using-iterator&quot;&gt;Check status() after every operation When using iterator&lt;/h3&gt;
+
+&lt;p&gt;在使用 Iterator 时，有些 RocksDB 内部的错误不会随着调用立即抛出。所以光检查 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;iterator→isValid()&lt;/code&gt; 还不够。比较好的做法是封装一个 IteratorWrapper，在每次操作后做一次检查，可以避免很多潜在的问题。&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksIteratorWrapper&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;implements&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksIteratorInterface&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Closeable&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+
+    &lt;span class=&quot;kd&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksIterator&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
+
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;RocksIteratorWrapper&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;@Nonnull&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksIterator&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;this&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;iterator&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;boolean&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;isValid&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;this&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;isValid&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;seekToFirst&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;seekToFirst&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;seekToLast&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;seekToFirst&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;seek&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;seek&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;seek&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;ByteBuffer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;seek&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;seekForPrev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;ByteBuffer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;seekForPrev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;refresh&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;
+            &lt;span class=&quot;kd&quot;&gt;throws&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksDBException&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;refresh&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;seekForPrev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;seekForPrev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;next&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;next&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;prev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;prev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(){&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;catch&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;RocksDBException&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ex&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+            &lt;span class=&quot;k&quot;&gt;throw&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;LoghubRuntimeException&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Internal exception found in RocksDB&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ex&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;close&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;close&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;reuse-jni-object&quot;&gt;Reuse JNI Object&lt;/h3&gt;
+
+&lt;p&gt;虽然 try-with-resource 的语法能保证 JVM 及时释放 native 内存，但是创建 Native 对象仍然有不少额外开销，尤其是会随着用户请求放大的操作。&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksDBWrapper&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;put&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+		&lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kd&quot;&gt;final&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;WriteOptions&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;WriteOptions&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()){&lt;/span&gt;  
+		    &lt;span class=&quot;n&quot;&gt;db&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;put&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+		&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;catch&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;RocksDBException&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;e&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+		  &lt;span class=&quot;c1&quot;&gt;// error handling&lt;/span&gt;
+		&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;// reuse WriteOptions&lt;/span&gt;
+&lt;span class=&quot;kd&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RocksDBWrapper&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;kd&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;final&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;WriteOptions&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;WriteOptions&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;();&lt;/span&gt;
+  &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;put&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;byte&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+		&lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;  
+		    &lt;span class=&quot;n&quot;&gt;db&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;put&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+		&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;catch&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;RocksDBException&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;e&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+		  &lt;span class=&quot;c1&quot;&gt;// error handling&lt;/span&gt;
+		&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;avoid-using-custom-java-comparator&quot;&gt;Avoid Using Custom Java Comparator&lt;/h3&gt;
+
+&lt;p&gt;Comparator 是 RocksDB 中一个比较重要的概念，它的实现决定了 key 的存储的顺序。默认的Comparator 是 ByteWiseComparator，对于 string 类型的 key 来说，ByteWiseComparator 就是字典序。&lt;/p&gt;
+
+&lt;p&gt;RocksJava API 中有一个抽象的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AbstractComparator&lt;/code&gt; 允许 Java 用户自定义 Comparator 的实现。比如我们可以为 Long 类型的 Key 实现一个自定义的 Comparator：&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;LongValueComparator&lt;/span&gt;
+        &lt;span class=&quot;kd&quot;&gt;extends&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;AbstractComparator&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;LongValueComparator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;kd&quot;&gt;super&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;ComparatorOptions&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;().&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;setUseDirectBuffer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;true&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;));&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;String&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;LongValueComparator&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+    &lt;span class=&quot;nd&quot;&gt;@Override&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;compare&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;ByteBuffer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;ByteBuffer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nc&quot;&gt;Long&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keyA&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Longs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;fromByteArray&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;array&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;());&lt;/span&gt;
+        &lt;span class=&quot;nc&quot;&gt;Long&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keyB&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Longs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;fromByteArray&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;array&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;());&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Long&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;compare&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;keyA&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keyB&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;RocksDB 在 6.8 版本出于性能原因&lt;a href=&quot;https://github.com/facebook/rocksdb/pull/6252&quot;&gt;修改了 RocksJava 的 Comparator 接口&lt;/a&gt;，参数类型从 Slice 改为 ByteBuffer&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;但是由于 Comparator 不论在写入还是读取，包括 MemTable flush 时都会频繁调用。JNI 调用的 Overhead 会被无限放大，导致 Java 实现的 Comparator 性能非常糟糕。官方 benchmark 的结果是性能差距在 5~6 倍之间。所以不论出于什么原因都不建议用 Java 实现自己的 Comparator，保持默认值，在 Serde 层做自己想做的事情。下图是通过 Java 实现 Comparator 后，FlushMemTable 的火焰图：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;https://s3-us-west-2.amazonaws.com/secure.notion-static.com/4f42422e-4f35-4792-ae10-308d078f0051/Untitled.png&quot; alt=&quot;https://s3-us-west-2.amazonaws.com/secure.notion-static.com/4f42422e-4f35-4792-ae10-308d078f0051/Untitled.png&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;monitor-rocksdb&quot;&gt;Monitor RocksDB&lt;/h3&gt;
+
+&lt;p&gt;由于 JNI 的存在，Native 内存的使用不会出现你的 JVM 监控中，既不是 Heap 也不是 Non-Heap，所以针对使用了 RocksDB 的 Java 应用，必须将进程的 Memory 监控起来。简单说来就是：&lt;/p&gt;
+
+&lt;p&gt;Native Memory = Process Memory - ( JVM Heap + JVM Non-Heap + DirectBuffer)&lt;/p&gt;
+
+&lt;p&gt;上面公式不准确，这部分内存还包括线程的栈空间以及 Metaspace 等区域的内存，不过用作估算足够用了。&lt;/p&gt;
+
+&lt;p&gt;另外 RocksDB 提供了 Statistics 类来存储一些统计信息，我们可以将这些信息导出到应用的 Metrics 中。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;https://s3-us-west-2.amazonaws.com/secure.notion-static.com/5e741471-da11-4895-bf76-3bf7cf161b78/Untitled.png&quot; alt=&quot;https://s3-us-west-2.amazonaws.com/secure.notion-static.com/5e741471-da11-4895-bf76-3bf7cf161b78/Untitled.png&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;总结&quot;&gt;总结&lt;/h3&gt;
+
+&lt;p&gt;网上关于 RocksJava 的讨论不多，希望这个总结对你有帮助。如果有什么遗漏的，欢迎评论。&lt;/p&gt;
+
+&lt;h3 id=&quot;reference&quot;&gt;Reference&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;RocksJava Basics &lt;a href=&quot;https://github.com/facebook/rocksdb/wiki/RocksJava-Basics&quot;&gt;https://github.com/facebook/rocksdb/wiki/RocksJava-Basics&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;The try-with-resources Statement &lt;a href=&quot;https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html&quot;&gt;https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;JNI wikipedia: &lt;a href=&quot;https://zh.wikipedia.org/wiki/Java%E6%9C%AC%E5%9C%B0%E6%8E%A5%E5%8F%A3&quot;&gt;https://zh.wikipedia.org/wiki/Java本地接口&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>lfyzjck</name></author><summary type="html">RocksDB Java API Notice</summary></entry><entry><title type="html">Ansible 快速入门</title><link href="/2020/06/07/ansible-quick-start.html" rel="alternate" type="text/html" title="Ansible 快速入门" /><published>2020-06-07T00:00:00+08:00</published><updated>2020-06-07T00:00:00+08:00</updated><id>/2020/06/07/ansible-quick-start</id><content type="html" xml:base="/2020/06/07/ansible-quick-start.html">&lt;h1 id=&quot;ansible-快速入门&quot;&gt;Ansible 快速入门&lt;/h1&gt;
+
+&lt;p&gt;Ansible 是一个 IT 自动化软件，类似于 Puppet 和 Chef，是实现 Infra-as-a-code 的一种工具。&lt;/p&gt;
+
+&lt;h2 id=&quot;quickstart&quot;&gt;QuickStart&lt;/h2&gt;
+
+&lt;h3 id=&quot;理解-ansible-如何控制远程服务器&quot;&gt;理解 Ansible 如何控制远程服务器&lt;/h3&gt;
+
+&lt;p&gt;Ansible 的所有操作是基于 ssh 协议的，我们可以通过 ssh 命令在远程服务器上执行命令：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;ssh root@ip &lt;span class=&quot;s1&quot;&gt;'ping baidu.com'&lt;/span&gt;
+PING baidu.com &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;39.156.69.79&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; 56&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;84&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; bytes of data.
+64 bytes from 39.156.69.79 &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;39.156.69.79&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;: &lt;span class=&quot;nv&quot;&gt;icmp_seq&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;1 &lt;span class=&quot;nv&quot;&gt;ttl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;48 &lt;span class=&quot;nb&quot;&gt;time&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;7.83 ms
+64 bytes from 39.156.69.79 &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;39.156.69.79&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;: &lt;span class=&quot;nv&quot;&gt;icmp_seq&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;2 &lt;span class=&quot;nv&quot;&gt;ttl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;48 &lt;span class=&quot;nb&quot;&gt;time&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;3.43 ms
+64 bytes from 39.156.69.79 &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;39.156.69.79&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;: &lt;span class=&quot;nv&quot;&gt;icmp_seq&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;3 &lt;span class=&quot;nv&quot;&gt;ttl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;48 &lt;span class=&quot;nb&quot;&gt;time&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;3.45 ms
+64 bytes from 39.156.69.79 &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;39.156.69.79&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;: &lt;span class=&quot;nv&quot;&gt;icmp_seq&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;4 &lt;span class=&quot;nv&quot;&gt;ttl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;48 &lt;span class=&quot;nb&quot;&gt;time&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;3.46 ms
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;在 Ansible 中编写的脚本最终也会被翻译成类似上面命令的方式被执行。&lt;/p&gt;
+
+&lt;p&gt;在 Ansible 执行的过程中，需要两种角色的节点，分别对应 ssh 的 client 和 server：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;管理节点（执行 ansible 命令的机器）&lt;/li&gt;
+  &lt;li&gt;托管节点（被 ansible 的管理的机器）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Ansible 的管理节点目前支持类 unix 系统，也就是 linux 和 macos。暂时不支持 windows 作为管理节点。管理节点可以是自己本地的电脑，但是由于私有化部署时我们面对的通常都是客户的内网环境，一般都无法在自己的开发机直接访问。为了简化使用方式，我们选择客户的一台服务器及作为管理节点也同时作为托管节点，所有 ansible 的操作总是从管理节点发起。&lt;/p&gt;
+
+&lt;p&gt;既然 Ansible 是基于 ssh 协议实现的，我们必须决定以哪个&lt;strong&gt;用户&lt;/strong&gt;的身份登陆，以何种方式进行 &lt;strong&gt;ssh 认证&lt;/strong&gt;，以及确保登陆用户有 &lt;strong&gt;sudo&lt;/strong&gt; 的权限。ssh 常用的认证方式支持密码和证书两种，由于我们希望自动化部署，不想在部署过程中频繁的输入密码，因此配置证书认证是比较好的选择。另外很多客户环境下 sudo 也需要额外的密码，因此需要在初始化环境时配置 ssh 的登陆用户可以免密的进行 sudo 操作。&lt;/p&gt;
+
+&lt;p&gt;总结一下，我们需要：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;选择一台客户内网的服务器作为管理节点，该节点通常也是我们的托管节点&lt;/li&gt;
+  &lt;li&gt;对托管节点配置基于证书的 ssh 免密登陆&lt;/li&gt;
+  &lt;li&gt;确保 ssh 登陆用户可以免密进行 sudo 操作&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;inventory-file&quot;&gt;Inventory File&lt;/h3&gt;
+
+&lt;p&gt;Ansible 可同时操作属于一个组的多台主机,组和主机之间的关系通过 inventory 文件配置。默认的文件路径为 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;/etc/ansible/hosts&lt;/code&gt; 。不过我们通常不把  inventory file 放在系统目录下，而是放在单独的配置目录。&lt;/p&gt;
+
+&lt;p&gt;我们试着写一个 inventory file :&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;webserver&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;]&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;host1&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;host2&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;保存为 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;hosts&lt;/code&gt; ，然后通过 ansible 的命令行执行 adhoc 命令&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;$ ansible all -i hosts -m ping&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;host1 | UNREACHABLE! =&amp;gt; {&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;&quot;changed&quot;&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;&quot;msg&quot;&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Failed&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;connect&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;the&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;host&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;via&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;ssh:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;ssh:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Could&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;not&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;resolve&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;hostname&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;host1:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nodename&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nor&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;servname&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;provided,&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;or&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;not&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;known&quot;&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;unreachable&quot;&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;true&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;host2 | UNREACHABLE! =&amp;gt; {&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;&quot;changed&quot;&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;&quot;msg&quot;&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Failed&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;connect&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;the&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;host&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;via&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;ssh:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;ssh:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Could&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;not&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;resolve&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;hostname&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;host2:&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nodename&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nor&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;servname&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;provided,&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;or&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;not&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;known&quot;&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;unreachable&quot;&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;true&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;其中 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;all&lt;/code&gt; 是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;lt;host-pattern&amp;gt;&lt;/code&gt; ,  &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;all&lt;/code&gt; 是一个特殊的 pattern，匹配所有 hosts。提示报错是预期的结果，因为 host1, host2 并不存在。&lt;/p&gt;
+
+&lt;h3 id=&quot;playbookroletask&quot;&gt;Playbook，Role，Task&lt;/h3&gt;
+
+&lt;p&gt;上一节展示了如何通过 ansible 执行 adhoc 命令，但是大部分时候我们用的更多的是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ansible-playbook&lt;/code&gt; 命令。Playbook 是 ansible 的任务编排语言，通过 YAML 来描述。关于 Playbook 和 role， task 的关系，一句话就可以说清楚：剧本 (playbook) 开始，角色们（role) 依次登上舞台，完成自己的任务 (task)。&lt;/p&gt;
+
+&lt;p&gt;playbook 一般是 ansible 执行的入口；role 更像是模块，是我们复用代码的基本单位；task 是一个个具体的实现。&lt;/p&gt;
+
+&lt;p&gt;先从一个不考虑复用的 playbook 开始：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;hosts&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;all&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;tasks&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;install vim&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;yum&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;vim&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;state&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;present&lt;/span&gt;
+
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;install jdk&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;yum&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;openjdk&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;state&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;present&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;这个 playbook 会在所有机器上安装 vim 和 openjdk。yum 是 ansible 提供的一个模块，ansible 拥有非常强大的生态，我们需要几乎所有操作都被 ansible 很好的封装了。所有模块的文档可以参考：&lt;a href=&quot;https://docs.ansible.com/ansible/latest/modules/modules_by_category.html&quot;&gt;https://docs.ansible.com/ansible/latest/modules/modules_by_category.html&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;随着 task 越来越多，playbook 会变得非常长而且不容易维护，中间如果有重复部分也难以实现代码复用。这个时候就轮到角色（role） 登场了。&lt;/p&gt;
+
+&lt;h3 id=&quot;编写可复用的脚本&quot;&gt;编写可复用的脚本&lt;/h3&gt;
+
+&lt;p&gt;role 从代码上看就是一个特定结构的目录，典型的 role 目录结构如下：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;site.yml&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;webservers.yml&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;fooservers.yml&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;roles/&lt;/span&gt;
+   &lt;span class=&quot;s&quot;&gt;common/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;files/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;templates/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;tasks/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;handlers/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;vars/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;defaults/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;meta/&lt;/span&gt;
+   &lt;span class=&quot;s&quot;&gt;webservers/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;files/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;templates/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;tasks/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;handlers/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;vars/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;defaults/&lt;/span&gt;
+     &lt;span class=&quot;s&quot;&gt;meta/&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;每个目录下默认的入口都是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;main.yml&lt;/code&gt; 这个文件。然后我们可以在 playbook 中引入这个 role：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;---&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;hosts&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;webservers&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;roles&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+     &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;common&lt;/span&gt;
+     &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;webservers&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;role 和 role 之间可以设置依赖关系，通过依赖我们可以隐式的执行某些 role。角色依赖需要定义在 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;meta/main.yml&lt;/code&gt; 文件中：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;---&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;dependencies&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;role&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;common&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;some_parameter&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;3&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;role&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;apache&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;80&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;role&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;postgres&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;dbname&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;blarg&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;other_parameter&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;12&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;当一个 playbook 包含多个 role，并且 role 依赖了共同的 role 时，可能会有重复执行的情况。ansible 有一些机制避免重复无意义的执行，但是该规则不是很容易直观理解。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&quot;变量&quot;&gt;变量&lt;/h2&gt;
+
+&lt;h3 id=&quot;变量的定义&quot;&gt;&lt;strong&gt;变量的定义&lt;/strong&gt;&lt;/h3&gt;
+
+&lt;p&gt;&lt;strong&gt;Inventory File&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;[all:vars]
+foo1=bar
+foo2=bar2
+
+[group1]
+host1
+host2
+
+[group1:vars]
+foo3=bar3
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;PlayBook&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;---&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;hosts&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;all&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vars&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;http_port&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;80&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vars_prompt&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;service_name&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;prompt&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Which&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;service&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;do&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;you&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;want&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;to&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;remove?&quot;&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;private&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;no&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vars_files&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;/vars/external_vars.yml&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Role&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;有些变量只用于当前 role，可能会定义在 role 当中。一般位于 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;defaults/mian.yml&lt;/code&gt; 或者 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;vars/&lt;/code&gt; 目录下。&lt;/p&gt;
+
+&lt;p&gt;具体的使用参见：&lt;a href=&quot;https://docs.ansible.com/ansible/latest/user_guide/playbooks_reuse_roles.html&quot;&gt;https://docs.ansible.com/ansible/latest/user_guide/playbooks_reuse_roles.html&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Ansible 预定义&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;部分变量是 Ansible 自己定义的变量，比如我们要获取机器的 hostname：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;o&quot;&gt;{{&lt;/span&gt; ansible_facts[&lt;span class=&quot;s1&quot;&gt;'nodename'&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;}}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;这部分预定义变量非常多，可以通过下面命令查看：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;ansible &lt;span class=&quot;nb&quot;&gt;hostname&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-m&lt;/span&gt; setup
+&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;s2&quot;&gt;&quot;ansible_all_ipv4_addresses&quot;&lt;/span&gt;: &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;
+        &lt;span class=&quot;s2&quot;&gt;&quot;REDACTED IP ADDRESS&quot;&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;,
+    &lt;span class=&quot;s2&quot;&gt;&quot;ansible_all_ipv6_addresses&quot;&lt;/span&gt;: &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;
+        &lt;span class=&quot;s2&quot;&gt;&quot;REDACTED IPV6 ADDRESS&quot;&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;,
+    &lt;span class=&quot;s2&quot;&gt;&quot;ansible_apparmor&quot;&lt;/span&gt;: &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;s2&quot;&gt;&quot;status&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;disabled&quot;&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;,
+    &lt;span class=&quot;s2&quot;&gt;&quot;ansible_architecture&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;x86_64&quot;&lt;/span&gt;,
+    &lt;span class=&quot;s2&quot;&gt;&quot;ansible_bios_date&quot;&lt;/span&gt;: &lt;span class=&quot;s2&quot;&gt;&quot;11/28/2013&quot;&lt;/span&gt;
+		......
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Command Line&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;ansible-playbook site.yml &lt;span class=&quot;nt&quot;&gt;--extra-vars&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'{&quot;foo&quot;: &quot;bar&quot;}'&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html&quot;&gt;https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html&lt;/a&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;变量的作用域&quot;&gt;变量的作用域&lt;/h3&gt;
+
+&lt;p&gt;ansible 的变量作用域主要有 3 种：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Global：ansible 配置文件，环境变量，命令行&lt;/li&gt;
+  &lt;li&gt;Play：playbook vars, vars_prompt, vars_files; role defaults, vars&lt;/li&gt;
+  &lt;li&gt;Host: Inventory 中定义的的 host vars; facts&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;变量使用&quot;&gt;变量使用&lt;/h3&gt;
+
+&lt;p&gt;ansible 允许你在各处通过 jinja2 的语法使用变量。jinja2 是一个用 Python 开发的模版引擎，本身并不复杂，核心东西就 3 个：变量的输出，控制流，filter&lt;/p&gt;
+
+&lt;p&gt;两个大括号包起来表示输出变量：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;I'm {{ name }}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;变量输出时可以用过 filter 控制格式，类似 bash 里的 pipeline。filter 本质上是一个 Python 的函数，有一个入参和一个返回结果：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;I'm {{ name | trim | title }}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;控制流需要区别于输出，用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;{% %}&lt;/code&gt; 表示。比如一个 for 循环&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;{% for name in names %}
+I'm {{ name | title }}
+{% endfor %}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;条件判断&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;{% for name in names %}
+{% if ignore_case %}
+I'm {{ name | lower }}
+{% else %}
+I'm {{ name }}
+{% endif %}
+{% endif %}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;上面就是 jinja2 的介绍，更多细节需要去看文档。&lt;/p&gt;
+
+&lt;p&gt;需要注意的是，在 Ansible 中如果你要使用 jinja2 的语法去引用一个变量，必须用双引号内使用。&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;hosts&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;all&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vars&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;deploy_path&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;home_dir&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;}}/apps&quot;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;比如我们想根据各种上下文生成 nginx 的配置文件，可以通过 template 命令来渲染。首先定一个模版文件 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;nginx.conf.j2&lt;/code&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;server {
+  server_name {{ server_name }};
+  listen 80;
+  
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;我们希望这个配置文件可以覆盖默认的 nginx 配置：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;hosts&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;nginx&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vars&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;server_name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;gio.com&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;nginx_user&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;nginx&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;nginx_group&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nginx_user&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;}}&quot;&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;tasks&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;generate nginx config file&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	&lt;/span&gt;  &lt;span class=&quot;na&quot;&gt;template&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	&lt;/span&gt;    &lt;span class=&quot;na&quot;&gt;src&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;nginx.conf.j2&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	&lt;/span&gt;    &lt;span class=&quot;na&quot;&gt;dest&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;/etc/nginx/nginx.conf&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	&lt;/span&gt;    &lt;span class=&quot;na&quot;&gt;owner&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nginx_user&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;}}&quot;&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	&lt;/span&gt;    &lt;span class=&quot;na&quot;&gt;group&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;{{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;nginx_group&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;}}&quot;&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;	  &lt;/span&gt;&lt;span class=&quot;na&quot;&gt;become&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;yes&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;最佳实践&quot;&gt;最佳实践&lt;/h2&gt;
+
+&lt;h3 id=&quot;保持操作的幂等&quot;&gt;保持操作的幂等&lt;/h3&gt;
+
+&lt;p&gt;shell 脚本在执行时，很多命令的执行结果不是确定的。很多时候我们无法避免的需要反复重试某些脚本：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;脚本自身有 bug，修完以后需要重试&lt;/li&gt;
+  &lt;li&gt;机器状态不确定。比如脚本执行过程中机器重启了；免密 sudo 忘记配置结果执行到某个需要 sudo 的 task 时跪了。&lt;/li&gt;
+  &lt;li&gt;命令本身执行结果就是不确定的，比如通过 systemd 启动一个进程，systemctl start 命令返回成功并不代表真的启动成功了。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;ansible 的写法都是声明式而不是命令式。命令描述过程，声明式描述意图。明确的意图可以让 ansible 可以更好的帮你决定是否要重试某个任务，安全的隐藏细节。比如我们删除某个文件，命令式描述这样的：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;delete file&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;command&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;rm /tmp/xxx&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;但是当我们重复跑这个 task 时，已经被删除文件无法再次被删除，需要在每次删除前检查目标文件是否已经被删除。但是用声明式的写法就很容易实现：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;delete file&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;src&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;/tmp/xxx&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;state&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;absent&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;编写 ansible 脚本时，要始终记得一件事：不要想着你要做什么操作，而是描述你期望某个对象的状态是怎么样的。&lt;/p&gt;
+
+&lt;h3 id=&quot;谨慎处理非-root-用户运行时的逻辑&quot;&gt;谨慎处理非 root 用户运行时的逻辑&lt;/h3&gt;
+
+&lt;p&gt;ansible 的 task 有两个属性 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;become&lt;/code&gt; 和 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;become_user&lt;/code&gt; ，分别代表是否要使用 sudo 以及 sudo 的用户。比如创建一个目录并指定目录的 owner 和 group&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;create dir&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;/etc/foo&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;state&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;directory&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;owner&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;foo&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;group&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;foo&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;如果我们以 root 用户的身份执行 ansible 脚本，上面的脚本没有任何问题。但是如果是一个有 sudo 权限的普通用户，如果没有显式使用 sudo 的话，没有权限在 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;/etc&lt;/code&gt; 目录下创建任何东西。这是时候就需要使用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;become&lt;/code&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;create dir&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;/etc/foo&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;state&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;directory&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;owner&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;foo&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;group&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;foo&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;become&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;yes&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;测试脚本&quot;&gt;测试脚本&lt;/h3&gt;
+
+&lt;p&gt;检查语法：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;ansible-playbook --syntax-check &amp;lt;playbook&amp;gt;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Dry-run:&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;ansible-playbook --check &amp;lt;playbook&amp;gt;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;真实执行脚本：&lt;/p&gt;
+
+&lt;p&gt;由于测试可能需要反复执行，每次都申请服务器显然不现实，推荐本地用 VirtualBox + Vagrant 来进行测试。&lt;/p&gt;
+
+&lt;p&gt;首先定义 Vargrantfile，来创建 3 个虚拟机，hostname 是 hadoop[1-3]&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;$ cat Vagrantfile&lt;/span&gt;                                                                                                                                                    
+&lt;span class=&quot;c1&quot;&gt;# -*- mode: ruby -*-&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# vi: set ft=ruby :&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# All Vagrant configuration is done below. The &quot;2&quot; in Vagrant.configure&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# configures the configuration version (we support older styles for&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# backwards compatibility). Please don't change it unless you know what&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# you're doing.&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;Vagrant.configure(&quot;2&quot;) do |config|&lt;/span&gt;
+  &lt;span class=&quot;s&quot;&gt;config.vm.define 'hadoop01' do |hadoop01|&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.box = 'centos/7'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.hostname = 'hadoop01'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.network &quot;forwarded_port&quot;, guest&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;80, host&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;8000&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.network :private_network, :ip =&amp;gt; '192.168.10.192'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.provision :hosts, :sync_hosts =&amp;gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;true&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.provision :hosts, :add_localhost_hostnames =&amp;gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;false&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop01.vm.provider :virtualbox do |v|&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--natdnshostresolver1&quot;, &quot;on&quot;]&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--memory&quot;, 2048]&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--name&quot;, &quot;hadoop01&quot;]&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+
+  &lt;span class=&quot;s&quot;&gt;config.vm.define 'hadoop02' do |hadoop02|&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.box = 'centos/7'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.hostname = 'hadoop02'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.network &quot;forwarded_port&quot;, guest&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;80, host&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;8001&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.network :private_network, :ip =&amp;gt; '192.168.10.193'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.provision :hosts, :sync_hosts =&amp;gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;true&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.provision :hosts, :add_localhost_hostnames =&amp;gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;false&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop02.vm.provider :virtualbox do |v|&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--natdnshostresolver1&quot;, &quot;on&quot;]&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--memory&quot;, 2048]&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--name&quot;, &quot;hadoop02&quot;]&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+
+  &lt;span class=&quot;s&quot;&gt;config.vm.define 'hadoop03' do |hadoop03|&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.box = 'centos/7'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.hostname = 'hadoop03'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.network &quot;forwarded_port&quot;, guest&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;80, host&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;8002&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.network :private_network, :ip =&amp;gt; '192.168.10.194'&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.provision :hosts, :sync_hosts =&amp;gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;true&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.provision :hosts, :add_localhost_hostnames =&amp;gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;false&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;hadoop03.vm.provider :virtualbox do |v|&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--natdnshostresolver1&quot;, &quot;on&quot;]&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--memory&quot;, 2048]&lt;/span&gt;
+      &lt;span class=&quot;s&quot;&gt;v.customize [&quot;modifyvm&quot;, :id, &quot;--name&quot;, &quot;hadoop03&quot;]&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;s&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;启动服务器并配置 ssh&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;$ vagrant up&lt;/span&gt;
+
+&lt;span class=&quot;s&quot;&gt;$ vagrat ssh-config&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;创建一个用于测试的 inventory file，然后执行 playbook：&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;s&quot;&gt;ansible-playbook &amp;lt;playbook&amp;gt; -i &amp;lt;inventory_file&amp;gt;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;单元测试：&lt;/p&gt;
+
+&lt;p&gt;ansible 的单元测试比较接近集成测试。有第一个第三方的框架可以支持：&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://molecule.readthedocs.io/en/latest/&quot;&gt;https://molecule.readthedocs.io/en/latest/&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;细节比较多这里不单独介绍，执行也需要依赖 docker 或者 vagrant&lt;/p&gt;
+
+&lt;h2 id=&quot;reference&quot;&gt;Reference&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://en.wikipedia.org/wiki/Infrastructure_as_code&quot;&gt;https://en.wikipedia.org/wiki/Infrastructure_as_code&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://ansible-tran.readthedocs.io/en/latest/docs/intro.html&quot;&gt;https://ansible-tran.readthedocs.io/en/latest/docs/intro.html&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><summary type="html">Ansible 快速入门</summary></entry><entry><title type="html">Hive 锁机制</title><link href="/2019/09/10/hive-locks.html" rel="alternate" type="text/html" title="Hive 锁机制" /><published>2019-09-10T00:00:00+08:00</published><updated>2019-09-10T00:00:00+08:00</updated><id>/2019/09/10/hive-locks</id><content type="html" xml:base="/2019/09/10/hive-locks.html">&lt;h1 id=&quot;hive-锁机制&quot;&gt;Hive 锁机制&lt;/h1&gt;
+
+&lt;h2 id=&quot;背景&quot;&gt;背景&lt;/h2&gt;
+
+&lt;p&gt;Hive 锁机制是为了让 Hive 支持并发读写而设计的 feature，另外要解决并发读写的情况下”脏读“ （Read uncommited）的问题。脏读的问题本身通过实现了原子的 reader/writer 已经得到解决（&lt;a href=&quot;https://issues.apache.org/jira/browse/HIVE-829&quot;&gt;https://issues.apache.org/jira/browse/HIVE-829&lt;/a&gt;）和锁机制并不绑定。&lt;/p&gt;
+
+&lt;h2 id=&quot;锁机制&quot;&gt;锁机制&lt;/h2&gt;
+
+&lt;p&gt;Hive 内部定义了两种类型的锁：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;共享锁(Share)&lt;/li&gt;
+  &lt;li&gt;互斥锁(Exclusive)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;不同锁之间的兼容性入下面表格：&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Lock Compatibility&lt;/th&gt;
+      &lt;th&gt;Existing Lock（S）&lt;/th&gt;
+      &lt;th&gt;Existing Lock（X）&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Requested Lock（S）&lt;/td&gt;
+      &lt;td&gt;True&lt;/td&gt;
+      &lt;td&gt;False&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Requested Lock（X）&lt;/td&gt;
+      &lt;td&gt;False&lt;/td&gt;
+      &lt;td&gt;False&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;锁的基本机制是：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;元信息和数据的变更需要互斥锁&lt;/li&gt;
+  &lt;li&gt;数据的读取需要共享锁&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;根据这个机制，Hive 的一些场景操作对应的锁级别如下：&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Hive command&lt;/th&gt;
+      &lt;th&gt;Locks Acquired&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;select .. T1 partition P1&lt;/td&gt;
+      &lt;td&gt;S on T1, T1.P1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;insert into T2(partition P2) select .. T1 partition P1&lt;/td&gt;
+      &lt;td&gt;S on T2, T1, T1.P1 and X on T2.P2&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;insert into T2(partition P.Q) select .. T1 partition P1&lt;/td&gt;
+      &lt;td&gt;S on T2, T2.P, T1, T1.P1 and X on T2.P.Q&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 rename T2&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 add cols&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 replace cols&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 change cols&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 concatenate&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 add partition P1&lt;/td&gt;
+      &lt;td&gt;S on T1, X on T1.P1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 drop partition P1&lt;/td&gt;
+      &lt;td&gt;S on T1, X on T1.P1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 touch partition P1&lt;/td&gt;
+      &lt;td&gt;S on T1, X on T1.P1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 set serdeproperties&lt;/td&gt;
+      &lt;td&gt;S on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 set serializer&lt;/td&gt;
+      &lt;td&gt;S on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 set file format&lt;/td&gt;
+      &lt;td&gt;S on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 set tblproperties&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;alter table T1 partition P1 concatenate&lt;/td&gt;
+      &lt;td&gt;X on T1.P1&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;drop table T1&lt;/td&gt;
+      &lt;td&gt;X on T1&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Hive 锁在 zookeeper 上会对应 ephemeral 的节点，避免释放锁失败导致死锁&lt;/p&gt;
+
+&lt;h2 id=&quot;调试锁&quot;&gt;调试锁🔐&lt;/h2&gt;
+
+&lt;p&gt;可以通过下面命令查看某个表或者分区的锁&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;SHOW LOCKS &lt;TABLE_NAME&gt;;&lt;/TABLE_NAME&gt;&lt;/li&gt;
+  &lt;li&gt;SHOW LOCKS &lt;TABLE_NAME&gt; EXTENDED;&lt;/TABLE_NAME&gt;&lt;/li&gt;
+  &lt;li&gt;SHOW LOCKS &lt;TABLE_NAME&gt; PARTITION (&lt;PARTITION_DESC&gt;);&lt;/PARTITION_DESC&gt;&lt;/TABLE_NAME&gt;&lt;/li&gt;
+  &lt;li&gt;SHOW LOCKS &lt;TABLE_NAME&gt; PARTITION (&lt;PARTITION_DESC&gt;) EXTENDED;&lt;/PARTITION_DESC&gt;&lt;/TABLE_NAME&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;See also &lt;a href=&quot;https://cwiki.apache.org/confluence/display/Hive/LanguageManual+Explain#LanguageManualExplain-TheLOCKSClause&quot;&gt;EXPLAIN LOCKS&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;关闭锁机制&quot;&gt;关闭锁机制&lt;/h2&gt;
+
+&lt;p&gt;可以通过设置 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;hive.support.concurrency=fasle&lt;/code&gt; 来解决&lt;/p&gt;
+
+&lt;p&gt;关闭锁机制会造成下面影响：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;并发读写同一份数据时，读操作可能会随机失败&lt;/li&gt;
+  &lt;li&gt;并发写操作的结果在随机出现，后完成的任务覆盖之前完成任务的结果&lt;/li&gt;
+  &lt;li&gt;SHOW LOCKS， UNLOCK TABLE 会报错&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;hivelockmanager-的实现&quot;&gt;HiveLockManager 的实现&lt;/h2&gt;
+
+&lt;p&gt;在关闭 Hive 锁的过程中，发现粗暴的禁用 concurrency 会导致 UNLOCK TABLE 语法报错。一些遗留系统已经依赖这个语法来确保自身任务不被阻塞，这样的修改会导致这些程序出现问题。于是转而研究有没有其他简单锁的实现可以达到类似的效果。粗看 Hive 的代码找到这 3  种实现：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;DbLockManager 配合 DbTxnManager 用于在 Hive 中实现事务，不能单独使用&lt;/li&gt;
+  &lt;li&gt;EmbeddedLockManager HiveServer 级别基于内存实现的锁&lt;/li&gt;
+  &lt;li&gt;ZooKeeperHiveLockManager 默认的 LockManager 实现，基于 zookeeper 实现的分布式协调锁&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;hive-zookeeper-锁泄露问题&quot;&gt;Hive Zookeeper 锁泄露问题&lt;/h2&gt;
+
+&lt;p&gt;在 cancel Hive 查询时，有概率发生 Zookeeper 锁释放失败的问题。因为 Hive 的锁在Zookeeper 是持久节点，累计的锁释放失败可能造成 Zookeeper 的 Node 数量过多，影响 Zookeeper 的性能。社区有对应的 ISSUE，该问题在 2.3.0 版本才被 FIX: &lt;a href=&quot;https://issues.apache.org/jira/browse/HIVE-15997&quot;&gt;https://issues.apache.org/jira/browse/HIVE-15997&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;HiveServer 上可以发现类似日志，就是锁释放失败的标志：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;2019-03-06T07:41:56,556 ERROR [HiveServer2-Background-Pool: Thread-45399] ZooKeeperHiveLockManager: Failed to release ZooKeeper lock:
+java.lang.InterruptedException
+        at java.lang.Object.wait(Native Method) ~[?:1.8.0_45]
+        at java.lang.Object.wait(Object.java:502) ~[?:1.8.0_45]
+        at org.apache.zookeeper.ClientCnxn.submitRequest(ClientCnxn.java:1342) ~[zookeeper-3.4.5-cdh5.5.0.jar:3.4.5-cdh5.5.0--1]
+        at org.apache.zookeeper.ZooKeeper.delete(ZooKeeper.java:871) ~[zookeeper-3.4.5-cdh5.5.0.jar:3.4.5-cdh5.5.0--1]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl$5.call(DeleteBuilderImpl.java:239) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl$5.call(DeleteBuilderImpl.java:234) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.RetryLoop.callWithRetry(RetryLoop.java:107) ~[curator-client-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl.pathInForeground(DeleteBuilderImpl.java:230) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl.forPath(DeleteBuilderImpl.java:215) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.curator.framework.imps.DeleteBuilderImpl.forPath(DeleteBuilderImpl.java:42) ~[curator-framework-2.6.0.jar:?]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.unlockPrimitive(ZooKeeperHiveLockManager.java:474) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.unlockWithRetry(ZooKeeperHiveLockManager.java:452) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.unlock(ZooKeeperHiveLockManager.java:440) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLockManager.releaseLocks(ZooKeeperHiveLockManager.java:222) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.lockmgr.DummyTxnManager.releaseLocks(DummyTxnManager.java:188) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.releaseLocksAndCommitOrRollback(Driver.java:1136) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.rollback(Driver.java:1516) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.runInternal(Driver.java:1456) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.run(Driver.java:1171) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hadoop.hive.ql.Driver.run(Driver.java:1166) [hive-exec-2.1.1.jar:2.1.1]
+        at org.apache.hive.service.cli.operation.SQLOperation.runQuery(SQLOperation.java:242) [hive-service-2.1.1.jar:2.1.1]
+        at org.apache.hive.service.cli.operation.SQLOperation.access$800(SQLOperation.java:91) [hive-service-2.1.1.jar:2.1.1]
+        at org.apache.hive.service.cli.operation.SQLOperation$BackgroundWork$1.run(SQLOperation.java:334) [hive-service-2.1.1.jar:2.1.1]
+        at java.security.AccessController.doPrivileged(Native Method) ~[?:1.8.0_45]
+        at javax.security.auth.Subject.doAs(Subject.java:422) [?:1.8.0_45]
+        at org.apache.hadoop.security.UserGroupInformation.doAs(UserGroupInformation.java:1671) [hadoop-common-2.6.0-cdh5.5.0.jar:?]
+        at org.apache.hive.service.cli.operation.SQLOperation$BackgroundWork.run(SQLOperation.java:347) [hive-service-2.1.1.jar:2.1.1]
+        at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511) [?:1.8.0_45]
+        at java.util.concurrent.FutureTask.run(FutureTask.java:266) [?:1.8.0_45]
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142) [?:1.8.0_45]
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617) [?:1.8.0_45]
+        at java.lang.Thread.run(Thread.java:745) [?:1.8.0_45]
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;锁泄露除了修复这个 ISSUE 以外比较难处理。在公司中，如果有成熟的调度器协调任务的依赖关系，那么非常建议禁用掉 Hive 的锁机制。在表数量众多，分区众多的场景下，使用 Zookeeper 的代价也是非常高的。&lt;/p&gt;
+
+&lt;h2 id=&quot;参考资料&quot;&gt;参考资料&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://cwiki.apache.org/confluence/display/Hive/Locking&quot;&gt;https://cwiki.apache.org/confluence/display/Hive/Locking&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://issues.apache.org/jira/browse/HIVE-1293&quot;&gt;https://issues.apache.org/jira/browse/HIVE-1293&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://issues.apache.org/jira/browse/HIVE-15997&quot;&gt;https://issues.apache.org/jira/browse/HIVE-15997&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><summary type="html">Hive 锁机制</summary></entry><entry><title type="html">大数据平台的数据同步服务实践</title><link href="/2018/11/14/datasync-practice-in-zhihu.html" rel="alternate" type="text/html" title="大数据平台的数据同步服务实践" /><published>2018-11-14T00:00:00+08:00</published><updated>2018-11-14T00:00:00+08:00</updated><id>/2018/11/14/datasync-practice-in-zhihu</id><content type="html" xml:base="/2018/11/14/datasync-practice-in-zhihu.html">&lt;h1 id=&quot;大数据平台的数据同步服务实践&quot;&gt;大数据平台的数据同步服务实践&lt;/h1&gt;
+
+&lt;h2 id=&quot;引言&quot;&gt;引言&lt;/h2&gt;
+
+&lt;p&gt;在大数据系统中，我们往往无法直接对在线系统中的数据直接进行检索和计算。在线系统所使用关系型数据库，缓存存储数据的方式都非常不同，很多系统不适合 OLAP 式的查询，也不允许 OLAP 查询影响到在线业务的稳定性。从数仓建设的角度思考，稳定规范的数仓必定依赖于稳定和规范的数据源，数据需要经过采集加工后才能真正被数仓所使用。推动数据同步服务的平台化，才有可能从源头规范数据的产出。数据同步服务不像数据挖掘一样可以直接产生价值，但它更像是连接不同存储的高速公路，好的同步工具可以很大程度上提升数据开发的效率。&lt;/p&gt;
+
+&lt;p&gt;本文主要介绍知乎在数据同步这方面的建设，工具选型和平台化的实践。&lt;/p&gt;
+
+&lt;h2 id=&quot;业务场景及架构&quot;&gt;业务场景及架构&lt;/h2&gt;
+
+&lt;p&gt;在线业务的数据库在知乎内部还是以 MySQL 和 HBase 为主，所以数据源方面主要考虑 MySQL 和 Hive 的互相同步，后续可以支持 HBase。早期数据同步使用 Oozie + Sqoop 来完成，基本满足业务需求。但是随着数仓任务不断变多，出现了很多重复同步的例子，对同步任务的负载管理也是空白。凌晨同步数据导致 MySQL 不断报警，DBA 苦不堪言。对于业务来说，哪些表已经被同步了，哪些表还没有也是一个黑盒子，依赖其他业务方的数据都只能靠口头的约定。为了解决这些问题，决定对数据同步做一个统一的平台，简化同步任务的配置，调度平衡负载，管理元信息等等。&lt;/p&gt;
+
+&lt;h2 id=&quot;技术选型&quot;&gt;技术选型&lt;/h2&gt;
+
+&lt;p&gt;数据同步工具市面上有很多解决方案，面向批的主要有 &lt;a href=&quot;http://sqoop.apache.org/&quot;&gt;Apache Sqoop&lt;/a&gt; 和阿里开源的 &lt;a href=&quot;https://github.com/alibaba/DataX&quot;&gt;DataX&lt;/a&gt;，下面主要对比这两种数据同步工具。&lt;/p&gt;
+
+&lt;h5 id=&quot;sqoop&quot;&gt;Sqoop&lt;/h5&gt;
+
+&lt;p&gt;Pros：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;基于 MapReduce 实现，容易并行和利用现有集群的计算资源&lt;/li&gt;
+  &lt;li&gt;和 Hive 兼容性好，支持 Parquet，ORC 等格式&lt;/li&gt;
+  &lt;li&gt;支持自动迁移 Schema&lt;/li&gt;
+  &lt;li&gt;社区强大，遇到的问题容易解决&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Cons：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;支持的数据源不算太丰富（比如 ES），扩展难度大&lt;/li&gt;
+  &lt;li&gt;不支持限速，容易对 MySQL 造成压力&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h5 id=&quot;datax&quot;&gt;DataX&lt;/h5&gt;
+
+&lt;p&gt;Pros：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;支持的数据源丰富尤其是支持从非关系型数据库到关系型数据库的同步&lt;/li&gt;
+  &lt;li&gt;支持限速&lt;/li&gt;
+  &lt;li&gt;扩展方便，插件开发难度低&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Cons：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;需要额外的运行资源，当任务比较多的时候费机器&lt;/li&gt;
+  &lt;li&gt;没有原生支持导出到 Hive，需要做很多额外的工作才能满足需求&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;考虑到同步本身要消耗不少的计算和带宽资源，Sqoop 可以更好的利用 Hadoop 集群的资源，而且和 Hive 适配的更好，最终选择了 Sqoop 作为数据同步的工具。&lt;/p&gt;
+
+&lt;h2 id=&quot;平台化及实践&quot;&gt;平台化及实践&lt;/h2&gt;
+
+&lt;p&gt;平台化的目标是构建一个相对通用的数据同步平台，更好的支持新业务的接入，和公司内部的系统集成，满足业务需求。平台初期设计的目标有以下几个：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;简单的任务配置界面，方便新的任务接入&lt;/li&gt;
+  &lt;li&gt;监控和报警&lt;/li&gt;
+  &lt;li&gt;屏蔽 MySQL DDL 造成的影响&lt;/li&gt;
+  &lt;li&gt;可扩展新数据源&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;简化任务接入&quot;&gt;简化任务接入&lt;/h3&gt;
+
+&lt;p&gt;平台不应该要求每个用户都理解底层数据同步的原理，对用户而言，应该是描述数据源 (Source) 和目标存储(Sink)，还有同步周期等配置。所有提供的同步任务应该经过审核，防止未经许可的数据被同步，或者同步配置不合理，增加平台负担。最后暴露给用户的 UI 大概如下图。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/15418152524286/15421169494010.jpg&quot; alt=&quot;15421169494010-w600&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;增量同步&quot;&gt;增量同步&lt;/h3&gt;
+
+&lt;p&gt;对于数据量非常大的数据源，如果每次同步都是全量，对于 MySQL 的压力会特别大，同步需要的时间也会很长。因此需要一种可以每次只同步新增数据的机制，减少对于 MySQL 端的压力。但是增量同步不是没有代价的，它要求业务在设计表结构的时候，满足一些约束：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;业务对数据没有物理的删除操作，而是采用类似标记删除的机制&lt;/li&gt;
+  &lt;li&gt;数据没有 UPDATE （类似日志） 或者有 UPDATE 但是提供 updated_at 来标记每一行最后一次更新的时间&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;对于满足上面条件，数据量比较大的表就可以采用增量同步的方式拉取。小数据量的表不需要考虑增量同步，因为数据和合并也需要时间，如果收益不大就不应该引入额外的复杂性。一个经验值是行数 &amp;lt;= 2000w 的都属于数据量比较小的表，具体还取决于存储的数据内容（比如有很多 Text 类型的字段）。&lt;/p&gt;
+
+&lt;h3 id=&quot;处理-schema-变更&quot;&gt;处理 Schema 变更&lt;/h3&gt;
+
+&lt;p&gt;做数据同步永远回避不掉的一个问题就是 Schema 的变更，对 MySQL 来说，Schema 变更就是数据库的 DDL 操作。数据同步平台应该尽可能屏蔽 MySQL DDL 对同步任务的影响，并且对兼容的变更，及时变更推送到目标存储。&lt;/p&gt;
+
+&lt;p&gt;数据同步平台会定时的扫描每个同步任务上游的数据源，保存当前 Schema 的快照，如果发现 Schema 发生变化，就通知下游做出一样的变更。绝大部分的 DDL 还是增加字段，对于这种情况数据同步平台可以很好屏蔽变更对数仓的影响。对于删除字段的操作原则上禁止的，如果一定要做，需要走变更流程，通知到依赖该表的业务方，进行 Schema 同步的调整。&lt;/p&gt;
+
+&lt;h3 id=&quot;存储格式&quot;&gt;存储格式&lt;/h3&gt;
+
+&lt;p&gt;Hive 默认的格式是 Textfile，这是一种类似 CSV 的存储方式，但是对于 OLAP 查询来说性能并不友好。通常我们会选择一些列式存储提高存储和检索的效率。Hive 中比较成熟的列式存储格式有 Parquet 和 ORC。这两个存储的查询性能相差不大，但是 ORC 和 Hive 集成更好而且对于非嵌套数据结构查询性能是优于 Parquet 的。但是知乎内部因为也用了 Impala，早期的 Impala 版本不支持 ORC 格式的文件，为了兼容 Impala 最终选择了 Parquet 作为默认的存储格式。&lt;/p&gt;
+
+&lt;p&gt;关于列式存储的原理和 Benchmark，可以参考这个 &lt;a href=&quot;https://www.slideshare.net/oom65/file-format-benchmarks-avro-json-orc-parquet&quot;&gt;Slide&lt;/a&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;负载管理&quot;&gt;负载管理&lt;/h3&gt;
+
+&lt;p&gt;当同步任务越来越多时，单纯的按照任务启动时间来触发同步任务已经不能满足需求。数据同步应该保证对于线上业务没有影响，在此基础上速度越快越好。本质上是让 Sqoop 充分利用 MySQL 节点的 iops。要避免对线上服务的影响，对于需要数据同步的库单独建立一个从节点，隔离线上流量。初次之外，需要一个调度策略来决定一个任务何时执行。由于任务的总数量并不多，但是每个任务可能会执行非常长的时间，最终决定采用一个中央式的调度器，调度器的状态都持久化在数据库中，方便重启或者故障恢复。最终架构图如下&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/15418152524286/%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5%E8%B0%83%E5%BA%A6%E5%99%A8.jpg&quot; alt=&quot;数据同步调度器-w336&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;最终任务的调度流程如下：&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;每个 MySQL 实例是调度器的一个队列，根据同步的元信息决定该任务属于哪个队列&lt;/li&gt;
+  &lt;li&gt;根据要同步数据量预估资源消耗，向调度器申请资源&lt;/li&gt;
+  &lt;li&gt;调度器将任务提交到执行队列，没有意外的话会立刻开始执行&lt;/li&gt;
+  &lt;li&gt;Monitor 定时向调度器汇报 MySQL 节点的负载，如果负载过高就停止向该队列提交新的任务&lt;/li&gt;
+  &lt;li&gt;任务结束后从调度器归还资源&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;性能优化&quot;&gt;性能优化&lt;/h3&gt;
+
+&lt;h5 id=&quot;针对不同的数据源选择合适的并发数&quot;&gt;针对不同的数据源选择合适的并发数&lt;/h5&gt;
+
+&lt;p&gt;Sqoop 是基于 MapReduce 实现的，提交任务前先会生成 MapReduce 代码，然后提交到 Hadoop 集群。Job 整体的并发度就取决于 Mapper 的个数。Sqoop 默认的并发数是 4，对于数据量比较大的表的同步显然是不够的，对于数据量比较小的任务又太多了，这个参数一定要在运行时根据数据源的元信息去动态决定。&lt;/p&gt;
+
+&lt;h5 id=&quot;优化-distributed-cache-避免任务启动对-hdfs-的压力&quot;&gt;优化 &lt;a href=&quot;https://community.hortonworks.com/questions/79556/what-is-distributed-cache-in-hadoop.html&quot;&gt;Distributed Cache&lt;/a&gt; 避免任务启动对 HDFS 的压力&lt;/h5&gt;
+
+&lt;p&gt;在平台上线后，随着任务越来越多，发现如果 HDFS 的性能出现抖动，对同步任务整体的执行时间影响非常大，导致夜间的很多后继任务受到影响。开始推测是数据写入 HDFS 性能慢导致同步出现延时，但是任务大多数会卡在提交阶段。随着进一步排查，发现 MapReduce 为了解决不同作业依赖问题，引入了 Distributed Cache 机制可以将 Job 依赖的 lib 上传到 HDFS，然后再启动作业。Sqoop 也使用了类似的机制，会依赖 Hive 的相关 lib，这些依赖加起来有好几十个文件，总大小接近 150MB，虽然对于 HDFS 来说是很小数字，但是当同步任务非常多的时候，集群一点点的性能抖动都会导致调度器的吞吐大幅度下降，最终同步的产出会有严重延时。最后的解决方法是将 Sqoop 安装到集群中，然后通过 Sqoop 的参数 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;--skip-distcache&lt;/code&gt; 避免在任务提交阶段上传依赖的 jar。&lt;/p&gt;
+
+&lt;h5 id=&quot;关闭推测执行speculative-execution&quot;&gt;关闭推测执行（Speculative Execution）&lt;/h5&gt;
+
+&lt;p&gt;所谓推测执行是这样一种机制：在集群环境下运行 MapReduce，一个 job 下的多个 task 执行速度不一致，比如有的任务已经完成，但是有些任务可能只跑了10%，这些任务将会成为整个 job 的短板。推测执行会对运行慢的 task 启动备份任务，然后以先运行完成的 task 的结果为准，kill 掉另外一个 task。这个策略可以提升 job 的稳定性，在一些极端情况下加快 job 的执行速度。&lt;/p&gt;
+
+&lt;p&gt;Sqoop 默认的分片策略是按照数据库的主键和 Mapper 数量来决定每个分片拉取的数据量。如果主键不是单调递增或者递增的步长有大幅波动，分片就会出现数据倾斜。对于一个数据量较大的表来说，适度的数据倾斜是一定会存在的情况，当 Mapper 结束时间不均而触发推测执行机制时，MySQL 的数据被重复且并发的读取，占用了大量 io 资源，也会影响到其他同步的任务。在一个 Hadoop 集群中，我们仍然认为一个节点不可用导致整个 MapReduce 失败仍然是小概率事件，对这种错误，在调度器上增加重试就可以很好的解决问题而不是依赖推测执行机制。&lt;/p&gt;
+
+&lt;h3 id=&quot;监控和报警&quot;&gt;监控和报警&lt;/h3&gt;
+
+&lt;p&gt;根据 &lt;a href=&quot;http://ylzheng.com/2018/02/02/monitor-best-praticase4-golden-signals/&quot;&gt;&lt;strong&gt;USE&lt;/strong&gt;&lt;/a&gt; 原则，大概整理出下面几个需要监控的指标：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;MySQL 机器的负载，IOPS，出入带宽&lt;/li&gt;
+  &lt;li&gt;调度队列长度，Yarn 提交队列长度&lt;/li&gt;
+  &lt;li&gt;任务执行错误数&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;报警更多是针对队列饱和度和同步错误进行的&lt;/p&gt;
+
+&lt;h3 id=&quot;和离线作业调度器集成&quot;&gt;和离线作业调度器集成&lt;/h3&gt;
+
+&lt;p&gt;数据同步平台有一个重要的问题就是处理数据依赖问题。数据同步的数据源一般是整个批计算 DAG 的最上游节点。数据同步平台和调度器之间需要一个方式来通知对方某个数据源已经同步完成，并进行下游任务的拉起。在批计算中，一般是通过对某个分区打标记的方式实现的，比如 Hive 和 Spark 中常用的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;_SUCCESS&lt;/code&gt; 文件。但是这种方式的问题非常明显：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;检查依赖时需要频繁的 polling HDFS 目录的状态，当任务非常多的时候，对 HDFS 集群很不友好&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;_SUCCESS&lt;/code&gt; 文件是基于分区的，对没有分区的数据源不适用。同样难以适用于时刻变化的数据源，比如通过 Flink Sink 的实时表&lt;/li&gt;
+  &lt;li&gt;难以被 API 化，和更多其他系统集成&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;由于数据同步平台还承载了一些实时数据源的同步需求，我们希望对于数据源依赖的描述在流和批上是一致的。因此我们借鉴了 Flink 中 LOW Watermark 的概念，将依赖的检查转变为对数据源 watermark 的检查。并通过 API 暴露了统一的依赖检查接口。&lt;/p&gt;
+
+&lt;p&gt;比如 2018-10-10 凌晨一个天级别的同步任务完成，我们就更新 watermark 标识：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;watermark(2018-10-09 00:00:00) -&amp;gt; watermark(2018-10-10 00:00:00) 
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;对依赖的检查也从对标志的检查转变为 watermark 检查。比如一个计算任务依赖 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dt=2018-10-10&lt;/code&gt; 的数据，只要确保依赖分区代表的时间戳超过了被依赖数据源的 watermark 即可。这种表达方式适用于天和小时级别的表，也可以轻松扩展到实时数据源上。&lt;/p&gt;
+
+&lt;h2 id=&quot;展望&quot;&gt;展望&lt;/h2&gt;
+
+&lt;p&gt;数据同步发展到比较多的任务后，新增的同步任务越来越多，删除的速度远远跟不上新增的速度，总体来说同步的压力会越来越大，需要一个更好的机制去发现无用的同步任务并通知业务删除，减轻平台的压力。&lt;/p&gt;
+
+&lt;p&gt;另外就是数据源的支持不够，Hive 和 HBase、ElasticSearch 互通已经成了一个呼声很强烈的需求。Hive 虽然可以通过挂外部表用 SQL 的方式写入数据，但是效率不高有很难控制并发，很容易影响到线上集群，需要有更好的实现方案才能在生产环境真正的运行起来。&lt;/p&gt;
+
+&lt;p&gt;另外这里没有谈到的一个话题就是流式数据如何做同步，一个典型的场景就是 Kafka 的日志实时落地然后实时进行 OLAP 的查询，或者通过 MySQL binlog 实时更新 ElasticSearch 的索引。关于这块的基础设置知乎也在快速建设中，非常欢迎感兴趣同学投简历到 ck@zhihu.com ，加入知乎大数据计算平台组。&lt;/p&gt;
+
+&lt;h2 id=&quot;参考资料&quot;&gt;参考资料&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://chu888chu888.gitbooks.io/hadoopstudy/content/Content/9/datax/datax.html&quot;&gt;Datax 性能对比&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://blog.csdn.net/zhaodedong/article/details/54177686&quot;&gt;漫谈数据仓库之拉链表&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://orc.apache.org/&quot;&gt;Apache ORC&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;http://sqoop.apache.org/docs/1.4.7/SqoopUserGuide.html&quot;&gt;Apache Sqoop&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><summary type="html">大数据平台的数据同步服务实践</summary></entry><entry><title type="html">Sqoop 使用指南</title><link href="/2018/07/05/sqoop-cheatsheet.html" rel="alternate" type="text/html" title="Sqoop 使用指南" /><published>2018-07-05T00:00:00+08:00</published><updated>2018-07-05T00:00:00+08:00</updated><id>/2018/07/05/sqoop-cheatsheet</id><content type="html" xml:base="/2018/07/05/sqoop-cheatsheet.html">&lt;h1 id=&quot;sqoop-使用指南&quot;&gt;Sqoop 使用指南&lt;/h1&gt;
+
+&lt;p&gt;Sqoop 是一个数据同步工具，用于关系型数据库和各种大数据存储比如 Hive 之间的数据相互同步。Sqoop 因为它的使用便利得到了广泛使用。类似的工具还有阿里开源的 &lt;a href=&quot;https://github.com/alibaba/DataX&quot;&gt;DataX&lt;/a&gt; 和其他商业工具。&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;http://sqoop.apache.org/docs/1.99.7/index.html&quot;&gt;Sqoop 2.0&lt;/a&gt; 主要解决 Sqoop 1.x 扩展难的问题，提出的 Server-Client 模型，具体用的不是特别多。本文主要介绍的还是 Sqoop 1.x，最新的 Sqoop 版本是 1.4.7&lt;/p&gt;
+
+&lt;h3 id=&quot;安装&quot;&gt;安装&lt;/h3&gt;
+
+&lt;p&gt;Sqoop 安装需要依赖 Hadoop 和 Hive，以 Debain 为例，安装 Sqoop 也比较简单。&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;apt-get &lt;span class=&quot;nb&quot;&gt;install &lt;/span&gt;hadoop hive hive-hbase hive-hcatalog sqoop
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;除此之外，针对不同的数据源，需要不同的 JDBC Driver，这个是 Sqoop 默认没有自带的库，需要自行安装。比如 MySQL 的 Driver 是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;mysql-connector-java-5.1.13-bin.jar&lt;/code&gt; ，确保 Jar 包在 Sqoop 的 classpath 内就行。&lt;/p&gt;
+
+&lt;h3 id=&quot;数据源&quot;&gt;数据源&lt;/h3&gt;
+
+&lt;p&gt;Sqoop 支持非常多的数据源，理论上所有支持 JDBC 的数据源都可以作为 Sqoop 的数据源。最常见的场景还是从关系型数据（RDBMS）导入到 Hive, HBase 或者 HDFS。&lt;/p&gt;
+
+&lt;p&gt;Sqoop 的扩展性没有想象中的那么好，但是因为大部分企业的数据仓库还是构建在传统的 Hive 和 HBase 之上的，Sqoop 还是可以满足 80% 的数据同步需求的。&lt;/p&gt;
+
+&lt;p&gt;一个简单以 MySQL 作为上游数据源的同步：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop import &lt;span class=&quot;nt&quot;&gt;--connect&lt;/span&gt; jdbc:mysql://database.example.com/employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--username&lt;/span&gt; dbuser &lt;span class=&quot;nt&quot;&gt;--password&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt; 
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Sqoop 支持将数据同步到 HDFS 或者直接到 Hive：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop import &lt;span class=&quot;nt&quot;&gt;--connect&lt;/span&gt; jdbc:mysql://database.example.com/employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--username&lt;/span&gt; dbuser &lt;span class=&quot;nt&quot;&gt;--password&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--hive-import&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--hive-overwrite&lt;/span&gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--hive-database&lt;/span&gt; employees &lt;span class=&quot;nt&quot;&gt;--hive-table&lt;/span&gt; employees
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;存储格式&quot;&gt;存储格式&lt;/h3&gt;
+
+&lt;p&gt;存储格式主要是 Hive 的概念，但是对于数据同步来讲，格式的选择会影响同步数据，类型系统的兼容性等等，我们必须予以关注。参考下面的表格：&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt; &lt;/th&gt;
+      &lt;th&gt;压缩比&lt;/th&gt;
+      &lt;th&gt;预计算&lt;/th&gt;
+      &lt;th&gt;类型兼容性&lt;/th&gt;
+      &lt;th&gt; &lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;TextFile&lt;/td&gt;
+      &lt;td&gt;无&lt;/td&gt;
+      &lt;td&gt;否&lt;/td&gt;
+      &lt;td&gt;一般&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;SequenceFile&lt;/td&gt;
+      &lt;td&gt;中&lt;/td&gt;
+      &lt;td&gt;否&lt;/td&gt;
+      &lt;td&gt;一般&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Parquet&lt;/td&gt;
+      &lt;td&gt;高&lt;/td&gt;
+      &lt;td&gt;是（sqoop 依赖的版本 feature 不完整）&lt;/td&gt;
+      &lt;td&gt;好&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;ORC&lt;/td&gt;
+      &lt;td&gt;高&lt;/td&gt;
+      &lt;td&gt;是&lt;/td&gt;
+      &lt;td&gt;好&lt;/td&gt;
+      &lt;td&gt;file&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Hive 默认的存储格式是 TextFile，TextFile 类似一个 CSV 文件，使用不可见服务分割列，同步后的数据可读性比较好。但是因为所有数据都是按文本存储的，对于某些类型（比如 blob/bit ）无法支持。&lt;/p&gt;
+
+&lt;p&gt;Parquet/ORC 都是列式存储格式，这里不多介绍。在生产环境中更倾向于选择 Parquet/ORC ，节省空间的同时在 Hive 上的查询速度也更快。&lt;/p&gt;
+
+&lt;p&gt;同步为 Parquet 格式：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop import &lt;span class=&quot;nt&quot;&gt;--connect&lt;/span&gt; jdbc:mysql://database.example.com/employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--username&lt;/span&gt; dbuser &lt;span class=&quot;nt&quot;&gt;--password&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--hive-import&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--hive-overwrite&lt;/span&gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--hive-database&lt;/span&gt; employees &lt;span class=&quot;nt&quot;&gt;--hive-table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--as-parquetfile&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;如果要导出为 ORC 格式，需要借助 Hive 提供的一个组件 HCatalog，同步语法也稍稍不太一样&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop import &lt;span class=&quot;nt&quot;&gt;--connect&lt;/span&gt; jdbc:mysql://database.example.com/employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--username&lt;/span&gt; dbuser &lt;span class=&quot;nt&quot;&gt;--password&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--drop-and-create-hcatalog-table&lt;/span&gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--hcatalog-database&lt;/span&gt; employees &lt;span class=&quot;nt&quot;&gt;--hcatalog-table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+ &lt;span class=&quot;nt&quot;&gt;--hcatalog-storage-stanza&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;STORED AS ORC&quot;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Parquet 理论上也可以通过这种方式同步，不过实测当前 Sqoop 版本 (1.4.7) 还是有 BUG，还是等等吧。&lt;/p&gt;
+
+&lt;h3 id=&quot;类型的兼容性&quot;&gt;类型的兼容性&lt;/h3&gt;
+
+&lt;p&gt;由于数据源支持的类型和 Hive 本身可能不太一样，所以必然存在类型转换的问题。实际在使用过程中也是非常头疼的一件事。对于 Hive 来说，支持的类型取决于采用的存储格式。以 MySQL 为例，当存储格式为 Hive 时，基本的类型映射如下：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;MySQL(bigint) --&amp;gt; Hive(bigint) 
+MySQL(tinyint) --&amp;gt; Hive(tinyint) 
+MySQL(int) --&amp;gt; Hive(int) 
+MySQL(double) --&amp;gt; Hive(double) 
+MySQL(bit) --&amp;gt; Hive(boolean) 
+MySQL(varchar) --&amp;gt; Hive(string) 
+MySQL(decimal) --&amp;gt; Hive(double) 
+MySQL(date/timestamp) --&amp;gt; Hive(string)
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;这里的类型映射并不完全准确，因为还取决于目标存储格式支持的类型。&lt;/p&gt;
+
+&lt;p&gt;由于 Text 格式非常类似 CSV，使用文本存储所有数据，对于 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Binary/Blob&lt;/code&gt; 这样的类型就无法支持。Parquet/ORC/Avro 因为引入了序列化协议，本身存储是基于二进制的，所以可以支持绝大部分类型。&lt;/p&gt;
+
+&lt;p&gt;如果你在使用 TextFile 需要注意下面的问题：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;上游数据源中的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NULL&lt;/code&gt; 会被转化为字符串的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NULL&lt;/code&gt;, Hive 中的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NULL&lt;/code&gt; 用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;\N&lt;/code&gt; 表示&lt;/li&gt;
+  &lt;li&gt;如果内容中含有换行符，同步到 Hive 中会被当做独立的两行来处理，造成查询结果和实际数据不相符&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;处理方法比较简单&lt;/p&gt;
+
+&lt;p&gt;如果在使用 Parquet，要注意 Sqoop 自带的 Parquet 库版本比较旧，不支持 DateTime/Timestamp 类型的数据，而是会用一个表示 ms 的 BIGINT 来代替，分析数据的时候应该注意这点。&lt;/p&gt;
+
+&lt;h3 id=&quot;数据校验&quot;&gt;数据校验&lt;/h3&gt;
+
+&lt;p&gt;Sqoop 内建有 validate 机制，只能验证单表的 row count: &lt;a href=&quot;https://sqoop.apache.org/docs/1.4.3/SqoopUserGuide.html#validation&quot;&gt;Sqoop User Guide (v1.4.3)&lt;/a&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;增量导入&quot;&gt;增量导入&lt;/h3&gt;
+
+&lt;p&gt;对于数据量很大的库，全量同步会非常痛，但是如果可以选择还是尽可能的选择全量同步，这种同步模式对数据一致性的保证最好，没有状态。如果不得不进行增量同步，可以继续往后看。&lt;/p&gt;
+
+&lt;p&gt;增量导入对业务是有一定侵入的，Schema 的设计和数据写入模式需要遵守一定的规范：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;增量同步表，最好有一个 Primary Key ，最好是单调递增的 ID&lt;/li&gt;
+  &lt;li&gt;数据的写入模式满足下面两种情形之一
+    &lt;ul&gt;
+      &lt;li&gt;（Append）表的内容类似日志，一次写入不做修改和删除&lt;/li&gt;
+      &lt;li&gt;（LastModified）表的内容有修改和删除，但是删除操作是逻辑删除，比如用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;is_deleted&lt;/code&gt; 字段标识，并且有一个最后更新的时间戳比如 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;updated_at&lt;/code&gt;，&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;updated_at&lt;/code&gt; 上有索引。&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;增量的数据同步大致分为 2 个阶段：读取增量数据和合并数据。对 Sqoop 来说，增量同步需要 &lt;a href=&quot;http://sqoop.apache.org/docs/1.4.7/SqoopUserGuide.html#_literal_sqoop_metastore_literal&quot;&gt;sqoop-metastore&lt;/a&gt; 的支持，用于保存上次同步的位置。&lt;/p&gt;
+
+&lt;p&gt;比如对于 Append 模式，假设我们有一张表叫 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;employees&lt;/code&gt;，Primary Key 是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;id&lt;/code&gt;，上一次同步到 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;id &amp;lt;= 10000&lt;/code&gt; 的数据：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop import &lt;span class=&quot;nt&quot;&gt;--connect&lt;/span&gt; jdbc:mysql://database.example.com/employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--username&lt;/span&gt; dbuser &lt;span class=&quot;nt&quot;&gt;--password&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--target-dir&lt;/span&gt; &amp;lt;path/to/hive/table/location&amp;gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--incremental&lt;/span&gt; append &lt;span class=&quot;nt&quot;&gt;--check-column&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--last-value&lt;/span&gt; 10000
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;我们直接将数据 load 到了 Hive 的表空间里，Hive 可以直接查询到最新增量的数据。
+对 LastModified 模式会稍微复杂一些，除了加载增量数据，还涉及数据合并的问题，这里唯一的主键就特别重要了。&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop import &lt;span class=&quot;nt&quot;&gt;--connect&lt;/span&gt; jdbc:mysql://database.example.com/employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--username&lt;/span&gt; dbuser &lt;span class=&quot;nt&quot;&gt;--password&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--table&lt;/span&gt; employees &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--target-dir&lt;/span&gt; &amp;lt;path/to/hive/table/location&amp;gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;--incremental&lt;/span&gt; lastmodified &lt;span class=&quot;nt&quot;&gt;--check-column&lt;/span&gt; updated_at &lt;span class=&quot;nt&quot;&gt;--last-value&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'2018-07-05 00:00:00'&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Sqoop 会在同步结束后再启动一个 merge 任务对数据去重，如果表太小，可能 merge 的代价比全量同步的还要高，我们就要慎重考虑全量同步是不是值得了。&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;由于 HDFS 不支持修改文件，sqoop 的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;--incremental&lt;/code&gt; 和 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;--hive-import&lt;/code&gt; 不能同时使用&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Sqoop 也提供了单独的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sqoop merge&lt;/code&gt; 工具，我们也可以分开进行 import 和 merge 这两个步骤。&lt;/p&gt;
+
+&lt;h3 id=&quot;加速同步&quot;&gt;加速同步&lt;/h3&gt;
+
+&lt;p&gt;这个小节讨论一下如何加快 Sqoop 的同步速度，Sqoop 同步速度大致取决于下面的几个因素：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;数据源的读取速度&lt;/li&gt;
+  &lt;li&gt;HDFS 写入速度&lt;/li&gt;
+  &lt;li&gt;数据倾斜程度&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h5 id=&quot;数据源的读取速度&quot;&gt;数据源的读取速度&lt;/h5&gt;
+
+&lt;p&gt;如果上游数据源是 MySQL，可以考虑更换 SSD，保证 MySQL 实例的负载不要太高。除此之外，Sqoop 可以通过参数控制并发读取的 Mapper 个数加快读取速度。&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop &lt;span class=&quot;nt&quot;&gt;-m&lt;/span&gt; &amp;lt;mapper_num&amp;gt; ......
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;注意 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-m&lt;/code&gt; 并不是越大越高，并发数过高会把数据库实例打死，同步速度反而变慢。&lt;/p&gt;
+
+&lt;p&gt;Sqoop 默认会通过 jdbc 的 API 来读取数据，但是可以通过参数控制使用 MySQL 自己的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;mysqldump&lt;/code&gt; 来导出数据，这种方式比 jdbc 快一些，缺点是你不能选择要同步的列。另外只能支持目标格式为 Textfile。比较局限但是特定情况下还是很好使的。&lt;/p&gt;
+
+&lt;h5 id=&quot;hdfs-写入速度&quot;&gt;HDFS 写入速度&lt;/h5&gt;
+
+&lt;p&gt;这个除了刚刚提供的控制并发数，还需要保证 Yarn 分配给 Sqoop 的资源充足，不要让资源成为同步的瓶颈。另外，当我们选择 Parquet/ORC 作为存储格式时，数据在写入的时候需要做大量的预计算，这个过程是比较消耗 CPU 和内存的，我们可以控制 MapReduce 参数，适当提高 Sqoop 的资源配额。&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop &lt;span class=&quot;nt&quot;&gt;-Dmapreduce&lt;/span&gt;.map.cpu.vcores&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;4 &lt;span class=&quot;nt&quot;&gt;-Dmapreduce&lt;/span&gt;.map.memory.mb&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;8192 ...
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h5 id=&quot;数据倾斜&quot;&gt;数据倾斜&lt;/h5&gt;
+
+&lt;p&gt;Sqoop 默认的导入策略是根据主键进行分区导入的，具体的并发粒度取决于 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-m&lt;/code&gt; 参数。如果主键不连续出现大幅度跳跃，就会导致 Sqoop 导入的时候出现严重的数据倾斜。比如某张表的主键分布是这样的：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;1
+2
+3
+...
+1000
+1001
+100000
+100001
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Sqoop 计算每个 Mapper 读取的数据范围的时候，会遵循很简单的公式计算：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;range = (max(pk) - min(pk)) / mapper
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;几乎出现所有的数据 load 都集中在第一个 mapper 上，整体同步相当于没有并发。&lt;/p&gt;
+
+&lt;p&gt;参考阅读：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://blog.csdn.net/mike_h/article/details/50148309&quot;&gt;Hive 数据倾斜 (Data Skew) 总结 - CSDN博客&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;http://abhinaysandeboina.blogspot.hk/2017/08/avoiding-data-skew-in-sqoop.html&quot;&gt;Avoiding Data Skew in Sqoop&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.qingcloud.com/guide/sqoop.html&quot;&gt;Sqoop 指南 — QingCloud  文档&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;导出&quot;&gt;导出&lt;/h3&gt;
+
+&lt;p&gt;Sqoop 支持将 Hive 的数据导出到 MySQL，方便在线系统调用。&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;sqoop export --connect jdbc:mysql://database.example.com/employees --table employees --username dbuser --password &quot;&quot; --relaxed-isolation --update-key id --update-mode allowinsert --hcatalog-database employees --hcatalog-table employees
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;借助 HCatalog 可以比较轻松的将 Hive 表的数据直接导出到 MySQL。更多的详情参考官方文档，这里不多介绍。&lt;/p&gt;
+
+&lt;h3 id=&quot;更进一步&quot;&gt;更进一步&lt;/h3&gt;
+
+&lt;p&gt;如果我们要同步的数据非常多，管理同步任务本身就变成了一件复杂的事情。我们不仅要考虑源数据库的负载，安全性。还要考虑同步任务的启动时间，Schema 变更等等问题。实际使用的时候，我们在内部自研了一个平台，管理 MySQL 和 Hive 的数据源并对 Sqoop 任务做了调度。有一部分功能在 Sqoop 2.0 已经实现了。在大规模使用 sqoop 一定要想清楚运维的问题。&lt;/p&gt;
+
+&lt;h3 id=&quot;reference&quot;&gt;Reference&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://stackoverflow.com/questions/24987820/not-able-to-run-sqoop-using-oozie&quot;&gt;hadoop - Not able to run sqoop using oozie - Stack Overflow&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://stackoverflow.com/questions/23250977/how-to-deal-with-sqoop-import-delimiter-issues-r-n&quot;&gt;mysql - how to deal with sqoop import delimiter issues \r\n - Stack Overflow&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://www.zybuluo.com/aitanjupt/note/209968&quot;&gt;使用Sqoop从MySQL导入数据到Hive和HBase 及近期感悟 - 作业部落 Cmd Markdown 编辑阅读器&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://community.hortonworks.com/questions/28060/can-sqoop-be-used-to-directly-import-data-into-an.html&quot;&gt;Can sqoop be used to directly import data into an ORC table? - Hortonworks&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://cwiki.apache.org/confluence/display/Hive/LanguageManual+ORC&quot;&gt;LanguageManual ORC - Apache Hive - Apache Software Foundation&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;Hive 增量同步： &lt;a href=&quot;https://hortonworks.com/blog/four-step-strategy-incremental-updates-hive/&quot;&gt;Four-step Strategy for Incremental Updates in Apache Hive&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;使用 MERGE INTO 更新 Hive 数据： &lt;a href=&quot;https://hortonworks.com/blog/update-hive-tables-easy-way/&quot;&gt;Update Hive Tables the Easy Way - Hortonworks&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;SQL MERGE 的性能： &lt;a href=&quot;https://hortonworks.com/blog/apache-hive-moving-beyond-analytics-offload-with-sql-merge/&quot;&gt;Apache Hive: Moving Beyond Analytics Offload with SQL MERGE - Hortonworks&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://community.hortonworks.com/questions/11373/sqoop-incremental-import-in-hive-i-get-error-messa.html&quot;&gt;sqoop incremental import in hive I get error message hive not support append mode how to solve that - Hortonworks&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;
+    &lt;table&gt;
+      &lt;tbody&gt;
+        &lt;tr&gt;
+          &lt;td&gt;[Sqoop Incremental Import&lt;/td&gt;
+          &lt;td&gt;MySQL to Hive&lt;/td&gt;
+          &lt;td&gt;Big Data &amp;amp; Hadoop](http://www.hadooptechs.com/sqoop/sqoop-incremental-import-mysql-to-hive)&lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;
+  &lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://ask.hellobi.com/blog/marsj/4114&quot;&gt;Sqoop 1.4.6 导入实战 (RDB含MySQL和Oracle) - 天善智能：专注于商业智能BI和数据分析、大数据领域的垂直社区平台&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><summary type="html">Sqoop 使用指南</summary></entry><entry><title type="html">使用 BigTop 打包 Hadoop 全家桶</title><link href="/2018/02/25/bigtop-usage.html" rel="alternate" type="text/html" title="使用 BigTop 打包 Hadoop 全家桶" /><published>2018-02-25T00:00:00+08:00</published><updated>2018-02-25T00:00:00+08:00</updated><id>/2018/02/25/bigtop-usage</id><content type="html" xml:base="/2018/02/25/bigtop-usage.html">&lt;h1 id=&quot;使用-bigtop-打包-hadoop-全家桶&quot;&gt;使用 BigTop 打包 Hadoop 全家桶&lt;/h1&gt;
+
+&lt;p&gt;使用 Hadoop 软件好像难免会自己改下代码做些定制，或者在部分组件的版本选择上激进，其他的版本( 比如 HDFS)  上保守。最近在公司升级 Hive 到 2.1.1 ，也对代码做了一些调整确保对业务的兼容性，之前公司使用的是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;hive-1.2.2-cdh-5.5.0&lt;/code&gt; 。cdh 的发布节奏太慢跟不上社区的节奏，而且截止到现在，社区版本的 BUG 数量和稳定性都可以接受而不是必须选择商业公司给我们提供的发行版。&lt;/p&gt;
+
+&lt;p&gt;公司用的服务器是 Debian 7/8，为了方便的把定制过的 Hive 部署到服务器，需要将 Hive 打包成 deb，一直没找到特别好的打包方法。要做到 Cloudera 那样规范的 deb 非常繁琐，要处理启动脚本，环境变量，配置文件的 alternatives 等等。顺着这个思路找到了 Cloudera 官方的打包工具 &lt;a href=&quot;https://github.com/cloudera/cdh-package&quot;&gt;cdh-package&lt;/a&gt; ，但是这个库已经太长时间没有维护了，里面依赖的版本信息非常老旧，而且自己测试也没运行成功。但是 cdh-package 是基于 &lt;a href=&quot;https://github.com/apache/bigtop&quot;&gt;BigTop&lt;/a&gt; 的，BigTop 本身的维护还不错。&lt;/p&gt;
+
+&lt;p&gt;Bigtop 非常有野心，它的主要目标就是构建一个 Apache Hadoop 生态系统的包和交互式测试的社区。这个包括对各类不同级别工程进行测试(包，平台，运行时间，升级等…)，它由社区以关注系统作为一个整体开发而来。BigTop 官方除了介绍怎么安装之外没有任何使用文档，不过研究以后发现还算简单，不需要太多的说明。&lt;/p&gt;
+
+&lt;h3 id=&quot;准备-bigtop-环境&quot;&gt;准备 BigTop 环境&lt;/h3&gt;
+
+&lt;p&gt;可以根据官方的说明来安装，我这里是直接从 Github 拉了代码：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;git clone https://github.com/apache/bigtop.git
+&lt;span class=&quot;nb&quot;&gt;cd &lt;/span&gt;bigtop
+git checkout release-1.2.1
+./gradlew
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;然后我们可以运行 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;./gradlew tasks&lt;/code&gt; 看下 BigTop 给我们提供的命令，命令遵循下面的格式 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;./gradlew &amp;lt;package&amp;gt;-&amp;lt;dist&amp;gt;&lt;/code&gt; ：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;./gradlew tasks
+&lt;span class=&quot;c&quot;&gt;# hide some output&lt;/span&gt;
+hive-clean - Removing hive component build and output directories
+hive-deb - Building DEB &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive artifacts
+hive-download - Download hive artifacts
+hive-help - List of available tasks &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive
+hive-info - Info about hive component build
+hive-pkg - Invoking a native binary packaging target deb
+hive-relnotes - Preparing release notes &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive. No yet implemented!!!
+hive-rpm - Building RPM &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive artifacts
+hive-sdeb - Building SDEB &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive artifacts
+hive-spkg - Invoking a native binary packaging target sdeb
+hive-srpm - Building SRPM &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive artifacts
+hive-tar - Preparing a tarball &lt;span class=&quot;k&quot;&gt;for &lt;/span&gt;hive artifacts
+hive-version - Show version of hive component
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;然后编辑 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bigtop.bom&lt;/code&gt; 将依赖的版本改成自己需要的版本，注意 BigTop 这里会优先使用 bigtop.bom 中定义的版本号覆盖源代码的版本号。&lt;/p&gt;
+
+&lt;div class=&quot;language-json highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;err&quot;&gt;'hive'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;'hive'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;relNotes&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;'Apache&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;Hive'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;version&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;base&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.2&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;';&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;pkg&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;base;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;release&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;tarball&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;destination&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;apache-${name}-${version.base}-src.tar.gz&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+                &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;source&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;      &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;destination&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;url&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;download_path&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;/$name/$name-${version.base}/&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+                &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;${apache.APACHE_MIRROR}/${download_path}&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+                &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;archive&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;${apache.APACHE_ARCHIVE}/${download_path}&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;下面将介绍如何用 BigTop 打包 Hive&lt;/p&gt;
+
+&lt;h3 id=&quot;用-bigtop-打包-hive&quot;&gt;用 BigTop 打包 Hive&lt;/h3&gt;
+
+&lt;p&gt;我们的目标是将一份修改过的 Hive 代码打包成 deb 包分发到集群，首先在编辑机器上准备一些必要的依赖：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nb&quot;&gt;sudo &lt;/span&gt;apt-get update
+&lt;span class=&quot;nb&quot;&gt;sudo &lt;/span&gt;apt-get &lt;span class=&quot;nb&quot;&gt;install &lt;/span&gt;devscripts
+&lt;span class=&quot;nb&quot;&gt;sudo &lt;/span&gt;apt-get &lt;span class=&quot;nb&quot;&gt;install &lt;/span&gt;dh-make
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;接下来准备 Hive 的代码，Bigtop 默认根据 bom 文件里指定的版本号从上游下载 Hive 的代码，解压然后编译。但是由于我们要使用自己修改过的版本，可以修改 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bigtop.bom&lt;/code&gt; 从内部 git 仓库下载代码。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-grovvy&quot;&gt;  'hive' {
+      name    = 'hive'
+      relNotes = 'Apache Hive'
+      version { base = '2.1.1'; pkg = base; release = 1 }
+      tarball { destination = &quot;apache-${name}-${version.base}-src.tar.gz&quot;
+                source      = destination }
+      git     { repo = &quot;https://exmaple.com:hive/hive&quot;
+                ref = &quot;release-2.1.1&quot;
+                dir  = &quot;${name}-${version.base}&quot; }
+    }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后就可以开始打包了：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;./gradlew hive-deb
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;注意 BigTop 在它的仓库里包含了对 Hive 的几个 patch 文件，我这边测试的时候会导致编译失败，建议删除：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nb&quot;&gt;rm&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-f&lt;/span&gt; /bigtop-packages/src/common/hive/&lt;span class=&quot;k&quot;&gt;*&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;然后清理构建环境，重新打包：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;./gradlew hive-clean
+./gradlew hive-deb
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;如果需要更新包，可以提升 Release number，默认是 1 ，这个 BigTop 在文档里没有提及：&lt;/p&gt;
+
+&lt;div class=&quot;language-bash highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;BIGTOP_BUILD_STAMP&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&amp;lt;release&amp;gt; ./gradlew hive-deb
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;发布-deb-包&quot;&gt;发布 deb 包&lt;/h3&gt;
+
+&lt;p&gt;看看我们构建的结果，产生了很多 deb 包，这些包都需要上传到内部的 mirror&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ ls -l output/hive/
+total 138516
+-rw-r--r-- 1 ck ck 78645700 Feb  1 18:32 hive_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck   314946 Feb  1 18:33 hive_2.1.1-1_amd64.build
+-rw-r--r-- 1 ck ck     3461 Feb  1 18:32 hive_2.1.1-1_amd64.changes
+-rw-r--r-- 1 ck ck    12500 Feb  1 18:18 hive_2.1.1-1.debian.tar.xz
+-rw-r--r-- 1 ck ck     1227 Feb  1 18:18 hive_2.1.1-1.dsc
+-rw-r--r-- 1 ck ck     1829 Feb  1 18:18 hive_2.1.1-1_source.changes
+-rw-r--r-- 1 ck ck 20999949 Feb  1 18:18 hive_2.1.1.orig.tar.gz
+-rw-r--r-- 1 ck ck   107906 Feb  1 18:32 hive-hbase_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck   452862 Feb  1 18:32 hive-hcatalog_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3632 Feb  1 18:32 hive-hcatalog-server_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck 39029552 Feb  1 18:32 hive-jdbc_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3734 Feb  1 18:32 hive-metastore_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3738 Feb  1 18:32 hive-server2_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck  2068240 Feb  1 18:32 hive-webhcat_2.1.1-1_all.deb
+-rw-r--r-- 1 ck ck     3608 Feb  1 18:32 hive-webhcat-server_2.1.1-1_all.deb
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;</content><author><name></name></author><summary type="html">使用 BigTop 打包 Hadoop 全家桶</summary></entry><entry><title type="html">Hive 论文笔记</title><link href="/2017/11/03/hive-paper.html" rel="alternate" type="text/html" title="Hive 论文笔记" /><published>2017-11-03T00:00:00+08:00</published><updated>2017-11-03T00:00:00+08:00</updated><id>/2017/11/03/hive-paper</id><content type="html" xml:base="/2017/11/03/hive-paper.html">&lt;h1 id=&quot;hive-论文笔记&quot;&gt;Hive 论文笔记&lt;/h1&gt;
+
+&lt;p&gt;MapReduce 出现后，对数据的计算需求越来越多，而 MapReduce 提供的 API 太底层，学习成本和开发成本比较高，因此需要一个类 SQL 的工具，来代替大部分的 MapReduce 的使用场景。&lt;/p&gt;
+
+&lt;h3 id=&quot;数据模型类型系统和查询语言&quot;&gt;数据模型，类型系统和查询语言&lt;/h3&gt;
+
+&lt;p&gt;Hive 和传统的数据库一样有 Database 和 Table 的概念，数据存储在 Table 中。每个 Table 中会会很多行，每行有多列组成。&lt;/p&gt;
+
+&lt;h5 id=&quot;类型&quot;&gt;类型&lt;/h5&gt;
+
+&lt;p&gt;Hive 支持原生类型 (primitive types) 和复杂类型 (complex types)。&lt;/p&gt;
+
+&lt;p&gt;Primitive:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Integers: bigint, int, smallint, tinyint&lt;/li&gt;
+  &lt;li&gt;Float: float, double&lt;/li&gt;
+  &lt;li&gt;String&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Complex:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;map&amp;lt;key-type, value-type&amp;gt;&lt;/li&gt;
+  &lt;li&gt;list&lt;element-type&gt;&lt;/element-type&gt;&lt;/li&gt;
+  &lt;li&gt;struct&amp;lt;field-name, field-type, …&amp;gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;SerDe , Format 都是可插拔的，用户可以自定义 SerDe 或者 Format，在查询时可以通过 HiveQL 增加自己的 SerDe:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;ADD JAR /jars/myformat.jar;
+CREATE TABLE t2
+ROW FORMAT SERDE 'com.myformat.MySerDe';
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h5 id=&quot;hiveql&quot;&gt;HiveQL&lt;/h5&gt;
+
+&lt;p&gt;HiveQL 和传统的 SQL 几乎没有差别，但是存在一些局限：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;只能使用标准的 ANSI Join 语法&lt;/li&gt;
+  &lt;li&gt;JOIN 条件只能支持 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;=&lt;/code&gt; 运算符，不能使用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;gt;&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;lt;&lt;/code&gt;&lt;/li&gt;
+  &lt;li&gt;Hive 不能支持正常的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;INSERT INTO&lt;/code&gt;, 只能使用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;INSERT INTO OVERWRITE&lt;/code&gt; 从已有的数据中生成&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Hive 中可以直接调用 MapReduce 程序：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;FROM (
+  MAP doctext USING 'python wc_mapper.py' AS (word, cnt)
+  FROM docs
+  CLUSTER BY word
+) a
+REDUCE word, cnt USING 'python wc_reduce.py';
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Hive 提供了 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CLUSTER BY&lt;/code&gt; 和 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DISTRIBUTE BY&lt;/code&gt; 等语法改善 Reduce 的数据分布，解决数据倾斜问题&lt;/p&gt;
+
+&lt;h3 id=&quot;data-storage-serde-and-file-formats&quot;&gt;Data Storage, SerDe and File formats&lt;/h3&gt;
+
+&lt;h5 id=&quot;data-storage&quot;&gt;Data Storage&lt;/h5&gt;
+
+&lt;p&gt;Hive 的存储模型有 3 个层级&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Tables 对应 HDFS 的一个目录&lt;/li&gt;
+  &lt;li&gt;Partitions 是 Table 的子目录&lt;/li&gt;
+  &lt;li&gt;Buckets 是目录下具体的文件&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Partition 的字段不是 Table 数据的一部分，而是保存在目录的名称中。比如 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;/usr/hive/warehouse/t1/p_date=20170701&lt;/code&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Partition 可以优化查询性能，当用户指定 Partition 的情况下，Hive 只会扫描指定 Partition 下的文件。当 Hive 运行在 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;strict&lt;/code&gt; 模式时，用户需要指定只要一个 Partition 字段。&lt;/p&gt;
+
+&lt;p&gt;Bucket 相当于目录树的叶子节点，在创建表的时候用户可以指定需要多少个 Bucket，Bucket 可以用户数据的快速采样。&lt;/p&gt;
+
+&lt;p&gt;由于数据都保存在 HDFS 的表空间下，如果用户需要查询 HDFS 其他目录的文件，可以使用外部表：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;CREATE EXTERNAL TABLE test_extern(c1 string, c2 int)
+LOCATION '/user/mytables/mydata';
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;外部表和普通表的唯一区别是当我们执行 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DROP TABLE&lt;/code&gt; 时，外部表不会删除 HDFS 的文件。&lt;/p&gt;
+
+&lt;h5 id=&quot;serde&quot;&gt;SerDe&lt;/h5&gt;
+
+&lt;p&gt;SerDe 提供了几个 Java 接口，方便在文件格式和 Java Native 类型之间相互转化。默认的 SerDe 实现叫 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LazySerDe&lt;/code&gt; ，是一种用文本表示数据的存储格式。这种格式用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Ctrl-A&lt;/code&gt; 来分割列，&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;\n&lt;/code&gt; 来分割行。其他的 SerDe 实现包括 RegexSerDe, Thrift, Avro 等等。&lt;/p&gt;
+
+&lt;h5 id=&quot;file-formats&quot;&gt;File Formats&lt;/h5&gt;
+
+&lt;p&gt;Hadoop 上的文件可以以不同格式存储，Hive 默认的存储格式是一种叫 TextFormat 的格式，用类似 CSV 的纯文本表示数据。Format 可以在创建表的时候指定：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;CREATE TABLE dest1(key INT, value STRING)
+  STORED AS
+    INPUTFORMAT 'org.apache.hadoop.mapred.SequenceFileInputFormat'
+    OUTPUTFORMAT 'org.apache.hadoop.mapred.SequenceFileOutputFormat';
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;存储格式可以根据自己的需求扩展，选择合适的存储格式有利于提高性能，比如面向列存储的 ParquetFile 和 ORCFile，可以减少读取的数据量，ORCFile 甚至可以做一些与计算，来满足 Push Down 的需求。&lt;/p&gt;
+
+&lt;h5 id=&quot;系统架构和组件&quot;&gt;系统架构和组件&lt;/h5&gt;
+
+&lt;p&gt;Hive 由下面的组件构成：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;MetaStore - 存储系统目录看，还有数据库，表，列的各种原信息&lt;/li&gt;
+  &lt;li&gt;Driver - 管理 HiveQL 的生命周期&lt;/li&gt;
+  &lt;li&gt;Query Compiler - 将 Hive 的语句转换成一个 MapReduce 表达的 DAG&lt;/li&gt;
+  &lt;li&gt;Execution Engine - 将任务按照依赖顺序执行，早起版本只有 MapReduce，新版本应该有 Tez 和 Spark&lt;/li&gt;
+  &lt;li&gt;HiveServer - 提供 JDBC/ODBS 接口的服务，方便和其他系统集成&lt;/li&gt;
+  &lt;li&gt;Clients - Web UI 和命令行工具&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;A. MetaStore&lt;/p&gt;
+
+&lt;p&gt;Hive 的 MetaStore 一般基于一个 RDBMS 来实现，提供了一个 ORM 层来作为数据库的抽象。MetaStore 本身不是为了高并发和高可用设计的，在架构中也是一个单点（新版本有主从了），所以 Hive 在设计的时候需要保证在任务执行期间没有任何对 MetaStore 的访问。&lt;/p&gt;
+
+&lt;p&gt;B. Query Compiler&lt;/p&gt;
+
+&lt;p&gt;Query Compiler 首先将 HQL 转换成一个 AST，然后进行类型检查和语法分析，将 AST 转换成一个 operator DAG （QB Tree），然后优化器对 QB Tree 进行优化。Hive 只支持基于规则的优化器，比如只读取指定列的数据减少 IO，或者用户指定分区字段时，只读取指定分区下的文件。
+RBO 本质上是一个 Transformer，在 QB Tree 上做一系列的变换来减少查询的代价&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Hive 0.1.4 开始引入了一些基于代价的优化器（CBO）。&lt;a href=&quot;https://zh.hortonworks.com/blog/hive-0-14-cost-based-optimizer-cbo-technical-overview/&quot;&gt;COST BASED OPTIMIZER&lt;/a&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;之后就根据优化后的 QB Tree 生成物理执行计划，并且将 jar 包写入到 HDFS 的临时目录，开始运行。&lt;/p&gt;
+
+&lt;p&gt;C. Execution Engine&lt;/p&gt;
+
+&lt;p&gt;执行引擎会解析 plan.xml ，然后按照顺序将任务提交到 Hadoop，最终的数据库文件也会 move 到 HDFS 的指定目录。&lt;/p&gt;</content><author><name></name></author><summary type="html">Hive 论文笔记</summary></entry><entry><title type="html">金丝雀发布</title><link href="/2016/12/05/canary-deployment.html" rel="alternate" type="text/html" title="金丝雀发布" /><published>2016-12-05T00:00:00+08:00</published><updated>2016-12-05T00:00:00+08:00</updated><id>/2016/12/05/canary-deployment</id><content type="html" xml:base="/2016/12/05/canary-deployment.html">&lt;h1 id=&quot;金丝雀发布&quot;&gt;金丝雀发布&lt;/h1&gt;
+
+&lt;p&gt;金丝雀部署（Canary Deployments）在知乎落地差不多一年时间，通过金丝雀避免了很多线上的问题，相比之前的发布模型，极大降低了部署的风险。知乎是非常推崇 Devops 的公司，金丝雀发布作为 Devops 一种实践自然不会落下。但是由于基础设施变得越来越抽象和复杂，理解整个部署的工作流程已经变得比较困难，正好有机会给新的同事科普一下金丝雀发布的架构。&lt;/p&gt;
+
+&lt;p&gt;相传上个世纪煤矿工人在作业时，为了避免瓦斯中毒会随身带一只金丝雀下到矿洞，由于金丝雀对二氧化碳非常敏感，所以看到金丝雀昏厥的时候矿工们就知道该逃生了。[1]&lt;/p&gt;
+
+&lt;p&gt;金丝雀发布就是用生产环境一小部分流量验证应用的一种方法。从这个名字的由来也可以看到，金丝雀发布并不是完美的，如果代码出现问题，那么背用作测试的小部分流量会出错，就跟矿坑中昏厥的金丝雀一样。这种做法在非常敏感的业务中几乎无法接受，但是当系统复杂的到一定程度，错误无法完全避免的时候，为了避免出现更大的问题，牺牲一小部分流量，就可以将大部分错误的影响控制在一定范围内。&lt;/p&gt;
+
+&lt;h3 id=&quot;金丝雀发布的步骤&quot;&gt;金丝雀发布的步骤&lt;/h3&gt;
+
+&lt;p&gt;一个典型的金丝雀发布大概包含以下步骤[2]：&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;准备好发布用的 artifact&lt;/li&gt;
+  &lt;li&gt;从负载均衡器上移除金丝雀服务器&lt;/li&gt;
+  &lt;li&gt;升级金丝雀服务器&lt;/li&gt;
+  &lt;li&gt;最应用进行自动化测试&lt;/li&gt;
+  &lt;li&gt;将金丝雀服务器加入到负载均衡列表中&lt;/li&gt;
+  &lt;li&gt;升级剩余的服务版本&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;在知乎，负载均衡器采用的 HAProxy，并且依赖 Consul 作服务注册发现。而服务器可能是一台物理机也可能是 bay 上一个抽象的容器组。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14807508681806/Canary%20Deployments.png&quot; alt=&quot;Canary Deployments&quot; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;对于物理机，我们可以单独为其配置一个一台独立的服务器，通过在 HAProxy 上设置不同于 Production 服务器的权重来控制测试流量。但是这种方法不够方便，做自动化也难一些&lt;/li&gt;
+  &lt;li&gt;对于容器相对简单，我们复制一个 Production 版本的容器组，然后通过控制 Production 和 Canary 容器组的数量就可以控制流量。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;整个过程是部署系统在中间协调，当我们上线发布完成，部署系统会移除金丝雀服务器，让应用回到 Normal 状态。&lt;/p&gt;
+
+&lt;p&gt;如果遇到问题需要回滚，只需要将金丝雀容器组从 HAProxy 上摘掉就可以，基本上可以在几秒内完成。&lt;/p&gt;
+
+&lt;h3 id=&quot;haproxy&quot;&gt;HAProxy&lt;/h3&gt;
+
+&lt;p&gt;在整个金丝雀发布的架构中，HAProxy 是非常重要的一个组件，要发现后端的服务地址，并动态控制金丝雀和线上的流量比例。部署时我们并不会直接操作 HAProxy，而是更新 Consul 上的注册信息，通过事件广播告诉 HAProxy 服务地址有变化，这一过程通过 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;consul-template&lt;/code&gt; 完成。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14807508681806/consul.png&quot; alt=&quot;consu&quot; /&gt;
+HAProxy 自己也会注册到 Cosnul，伪装成服务的后端被调用，而服务自身则注册成 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;服务名 + --instance&lt;/code&gt;，在我们内部的 Consul 控制台可以看到。&lt;/p&gt;
+
+&lt;p&gt;每个服务都有自己独立的 HAproxy 集群，分布在不同的机器上，每个 HAProxy 只知道自己代理的服务的地址。这样做的好处是单个 HAProxy 崩溃不会影响业务，一组 HAProxy 负载高不会把故障扩散到整个集群。另外附带的一个好处是当我们更新服务注册地址时，不会 reload 整个 HAProxy 集群，只要更新对应的 HAProxy 实例就可以，一定程度上可以规避惊群问题。&lt;/p&gt;
+
+&lt;p&gt;HAProxy 的地址通过客户端服务发现获得，客户端发现多个 HAProxy 地址并可以做简单的负载均衡，将请求压力分摊到多个 HAProxy 实例上。&lt;/p&gt;
+
+&lt;p&gt;采用类似方案的公司是 Airbnb，不过他们的做法是把 HAProxy 作为一个 Agent 跑在服务器上，HAProxy 更靠近客户端[3]。&lt;/p&gt;
+
+&lt;h3 id=&quot;金丝雀发布的监控&quot;&gt;金丝雀发布的监控&lt;/h3&gt;
+
+&lt;p&gt;有了金丝雀发布后，我们还得能区分金丝雀和线上的监控数据，以此判断服务是否正常。&lt;/p&gt;
+
+&lt;p&gt;由于有了 zone 和 tzone 框架对监控的支持，这件事推起来相对简单。我们在部署时将服务当前所在的环境注入到环境变量中，然后根据环境变量来决定指标的名称。&lt;/p&gt;
+
+&lt;p&gt;比如一个正常的指标名称是:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;production.span.multimedia.server.APIUploadHandler_post.request_time
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;在金丝雀环境中的名称则是:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;canary.span.multimedia.server.APIUploadHandler_post.request_time
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;最后我们可以在 Halo 对比服务在金丝雀和生产的表现有何差别：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14807508681806/14808361124276.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;reference&quot;&gt;Reference&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;[1] 金丝雀发布的由来: https://blog.ccjeng.com/2015/06/canary-deployment.html&lt;/li&gt;
+  &lt;li&gt;[2] 在生产中使用金丝雀部署来进行测试: http://www.infoq.com/cn/news/2013/03/canary-release-improve-quality&lt;/li&gt;
+  &lt;li&gt;[3] Service Discovery in the Cloud: http://nerds.airbnb.com/smartstack-service-discovery-cloud/&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><summary type="html">金丝雀发布</summary></entry><entry><title type="html">Graphviz Quick Start</title><link href="/2016/08/03/graphviz-quick-start.html" rel="alternate" type="text/html" title="Graphviz Quick Start" /><published>2016-08-03T00:00:00+08:00</published><updated>2016-08-03T00:00:00+08:00</updated><id>/2016/08/03/graphviz-quick-start</id><content type="html" xml:base="/2016/08/03/graphviz-quick-start.html">&lt;h1 id=&quot;graphviz-入门指南&quot;&gt;Graphviz 入门指南&lt;/h1&gt;
+
+&lt;p&gt;Graphviz 是一个开源的图可视化工具，非常适合绘制结构化的图标和网络。Graphviz 使用一种叫 DOT 的语言来表示图形。&lt;/p&gt;
+
+&lt;h3 id=&quot;dot-语言&quot;&gt;DOT 语言&lt;/h3&gt;
+
+&lt;p&gt;DOT 语言是一种图形描述语言。能够以简单的方式描述图形，并且为人和计算机所理解。&lt;/p&gt;
+
+&lt;h4 id=&quot;无向图&quot;&gt;无向图&lt;/h4&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;graph graphname {
+	a -- b -- c;
+   b -- d;
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14707952861924/14710194114259.jpg&quot; alt=&quot;-w220&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;有向图&quot;&gt;有向图&lt;/h4&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;digraph graphname {
+	a -&amp;gt; b -&amp;gt; c;
+	b -&amp;gt; d;
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14707952861924/14710200127648.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;设置属性&quot;&gt;设置属性&lt;/h4&gt;
+
+&lt;p&gt;属性可以设置在节点和边上，用一对 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;[]&lt;/code&gt; 表示，多个属性可以用空格或者 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;,&lt;/code&gt; 隔开。&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;strict graph {
+	// 设置节点属性
+  b [shape=box];
+  c [shape=triangle];
+
+  // 设置边属性
+  a -- b [color=blue];
+  a -- c [style=dotted];
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;table&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;完整的属性列表可以参考 [attrs&lt;/td&gt;
+      &lt;td&gt;Graphviz - Graph Visualization Software](http://www.graphviz.org/content/attrs)&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h4 id=&quot;子图&quot;&gt;子图&lt;/h4&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;subgraph&lt;/code&gt; 的作用主要有 3 个：&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;表示图的结构，对节点和边进行分组&lt;/li&gt;
+  &lt;li&gt;提供一个单独的上下位文设置属性&lt;/li&gt;
+  &lt;li&gt;针对特定引擎使用特殊的布局。比如下面的例子，如果 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;subgraph&lt;/code&gt; 的名字以 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;cluster&lt;/code&gt; 开头，所有属于这个子图的节点会用一个矩形和其他节点分开。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;digraph graphname{ 
+    a -&amp;gt; {b c};
+    c -&amp;gt; e;
+    b -&amp;gt; d;
+    
+    subgraph cluster_bc {
+        bgcolor=red;
+        b;
+        c;
+    }
+    
+    subgraph cluster_de {
+        label=&quot;Block&quot;
+        d;
+        e;
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14707952861924/14710216720774.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;布局&quot;&gt;布局&lt;/h4&gt;
+
+&lt;p&gt;默认情况下图是从上到下布局的，通过设置 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;rankdir=&quot;LR&quot;&lt;/code&gt; 可以让图从左到右布局。&lt;/p&gt;
+
+&lt;p&gt;一个简单的表示 CI&amp;amp;CD 过程的图：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;digraph pipleline {
+    rankdir=LR;
+    g [label=&quot;Gitlab&quot;];
+    j [label=&quot;Jenkins&quot;];
+    t [label=&quot;Testing&quot;];
+    p [label=&quot;Production&quot; color=red];
+    
+    g -&amp;gt; j [label=&quot;Trigger&quot;];
+    j -&amp;gt; t [label=&quot;Build&quot;];
+    t -&amp;gt; p [label=&quot;Approved&quot;];
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/14707952861924/14710227380504.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;工具&quot;&gt;工具&lt;/h3&gt;
+
+&lt;p&gt;有非常多的工具可以支持 DOT 语言，这些工具都被集成在 Graphviz 的软件包中，可以简单安装使用。&lt;/p&gt;
+
+&lt;p&gt;dot&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;一个用来将生成的图形转换成多种输出格式的命令行工具。其输出格式包括PostScript，PDF，SVG，PNG，含注解的文本等等。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;neato&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;用于sprint model的生成（在Mac OS版本中称为energy minimized）。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;twopi&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;用于放射状图形的生成&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;circo&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;用于圆形图形的生成。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;fdp&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;另一个用于生成无向图的工具。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;dotty&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;一个用于可视化与修改图形的图形用户界面程序。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;lefty&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;一个可编程的(使用一种被EZ影响的语言[4])控件，它可以显示DOT图形，并允许用户用鼠标在图上执行操作。Lefty可以作为MVC模型的使用图形的GUI程序中的视图部分。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;另外介绍 2 个在线生成 Graphviz 的网站：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;http://www.webgraphviz.com/&quot;&gt;http://www.webgraphviz.com/&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;http://dreampuf.github.io/GraphvizOnline/&quot;&gt;http://dreampuf.github.io/GraphvizOnline/&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;reference&quot;&gt;Reference&lt;/h3&gt;
+
+&lt;p&gt;[1] &lt;a href=&quot;https://www.ibm.com/developerworks/cn/aix/library/au-aix-graphviz/&quot;&gt;使用 Graphviz 生成自动化系统图&lt;/a&gt;
+[2] &lt;a href=&quot;https://zh.wikipedia.org/wiki/DOT%E8%AF%AD%E8%A8%80&quot;&gt;DOT语言 - 维基百科，自由的百科全书&lt;/a&gt;
+[3] http://www.graphviz.org/content/dot-language&lt;/p&gt;</content><author><name></name></author><summary type="html">Graphviz 入门指南</summary></entry><entry><title type="html">Elixir Overview</title><link href="/2016/03/04/elixir-overview.html" rel="alternate" type="text/html" title="Elixir Overview" /><published>2016-03-04T00:00:00+08:00</published><updated>2016-03-04T00:00:00+08:00</updated><id>/2016/03/04/elixir-overview</id><content type="html" xml:base="/2016/03/04/elixir-overview.html">&lt;h1 id=&quot;elixir-overview&quot;&gt;elixir-overview&lt;/h1&gt;
+
+&lt;h1 id=&quot;初窥-elixir&quot;&gt;初窥 Elixir&lt;/h1&gt;
+
+&lt;p&gt;Elixir 是基于 Erlang VM 开发一个新语言，继承了 Erlang 的很多有点，在保持和 Erlang ByteCode 兼容的提前下提供了非常简洁易懂的语法。单从语法层面可能和 Ruby 比较像，不过仔细看还是和 Erlang 有很多一致的地方，如果你不习惯 Erlang 奇怪的语法(其实看过 Prolog 的语法以后就不觉得 Erlang 奇怪了)，但是又想享受 Erlang/OTP 带来的各种好处，Elixir 是不错的选择。&lt;/p&gt;
+
+&lt;p&gt;Elixir 可以调用 Erlang 的标准库，如果基本不用担心 第三方库不足的问题， Erlang 几十年的积累在这里放着呢，难怪 Joe Armstrong 大叔也对 Elixir 赞不绝口。&lt;/p&gt;
+
+&lt;h2 id=&quot;类型&quot;&gt;类型&lt;/h2&gt;
+
+&lt;p&gt;用 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;iex&lt;/code&gt; 来启动的 Elixir Shell，可以看到一个很像 Erlang Shell 的东西：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ iex
+Erlang/OTP 17 [erts-6.1] [source] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false] [dtrace]
+
+Interactive Elixir (1.0.3) - press Ctrl+C to exit (type h() ENTER for help)
+iex&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Elixir 支持 Erlang 大部分的类型，integer, float, atom, list, tuple, binary, keywords, map …&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; 1
+1
+iex&amp;gt; &quot;foobar&quot;
+&quot;foobar&quot;
+iex&amp;gt; 'foobar'
+'foobar'
+iex&amp;gt; :foo
+:foo
+iex&amp;gt; [1, 2, 3]
+[1, 2, 3]
+iex&amp;gt; {:foo, :bar}
+{:foo, :bar}
+iex&amp;gt; &amp;lt;&amp;lt;104, 101, 108, 108, 111, 0&amp;gt;&amp;gt;
+&amp;lt;&amp;lt;104, 101, 108, 108, 111, 0&amp;gt;&amp;gt;
+iex&amp;gt; [{:foo, 1}, {:bar, 2}]
+[foo: 1, bar: 2]
+iex&amp;gt; %{:ok =&amp;gt; 1, :fail =&amp;gt; 2}
+%{fail: 2, ok: 1}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&quot;foobar&quot;&lt;/code&gt; 和 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;'foobar'&lt;/code&gt; 是不同的类型，前者是 string，后者是是一个 charlist&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; is_binary &quot;foobar&quot;
+true
+iex&amp;gt; is_list 'foobar'
+true
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Elixir 引入了一个很像 Map 的类型叫 Keyword，但其实 Keyword  就是一个二元的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tuple&lt;/code&gt; 列表，不过要求 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tuple&lt;/code&gt; 的第一个元素是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;atom&lt;/code&gt;。Keyword 支持类似 Map 的访问方式&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; keyword1 = [{:foo, 1}, {:bar, 2}]
+[foo: 1, bar: 2]
+iex&amp;gt; keyword1[:foo]
+1
+iex&amp;gt; keyword1[:bar]
+2
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Map 通过 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;%{ key1 =&amp;gt; value1, key2 =&amp;gt; value2 ...}&lt;/code&gt; 的语法来创建，访问 Map 中的值有 3 种方式：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; map = %{:a =&amp;gt; 1, 2 =&amp;gt; :b}
+%{2 =&amp;gt; :b, :a =&amp;gt; 1}
+iex&amp;gt; map[:a]
+1
+iex&amp;gt; map[2]
+:b
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;不论 Map 还是 Keyword lists 都实现了 Dict 的访问协议，我们可以可以用 Dict 模块同时处理这 2 种数据结构。&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; map
+%{2 =&amp;gt; :b, :a =&amp;gt; 1}
+iex&amp;gt; Dict.get(map, :a)
+1
+iex&amp;gt; Dict.put_new(map, :c, 3)
+%{2 =&amp;gt; :b, :a =&amp;gt; 1, :c =&amp;gt; 3}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;模式匹配和递归&quot;&gt;模式匹配和递归&lt;/h2&gt;
+
+&lt;p&gt;Elixir 和 Erlang 一样，实现了模式匹配。模式匹配的强大不用多说，在解析数据的时候可以少写很多很多的 if…else…&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; {:ok, msg} = {:ok, &quot;success&quot;}
+{:ok, &quot;success&quot;}
+iex&amp;gt; %{:a =&amp;gt; x} = %{:a =&amp;gt; 1, :b =&amp;gt; 2}
+%{a: 1, b: 2}
+iex&amp;gt; %{:a =&amp;gt; x} = %{:b =&amp;gt; 2}
+** (MatchError) no match of right hand side value: %{b: 2}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Elixir 里的函数必须定义在 Module 里，让我们实现一个计算斐波那契数列的模块。&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;defmodule Math do
+  @doc&quot;&quot;&quot;
+  Calculate Fibonacci sequence value
+  &quot;&quot;&quot;
+  def fab(1) do 1 end
+  def fab(2) do 1 end
+  def fab(n) do
+    fab(n-1) + fab(n-2)
+  end
+
+  @doc &quot;&quot;&quot;
+  Calculates the sum of a number list
+  &quot;&quot;&quot;
+  def sum(list) do sum(list, 0) end
+  def sum([], sum) do sum end
+  def sum([h|t], sum) do sum(t, sum + h) end
+  
+end
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;enumerables--streams--comprehensions&quot;&gt;Enumerables &amp;amp; streams &amp;amp; Comprehensions&lt;/h2&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Enum&lt;/code&gt; 和 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Stream&lt;/code&gt; 最大的不同是 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Stream&lt;/code&gt; 是惰性求值，类似 Python 里的 generator，只有需要计算的时候真正计算。&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; Enum.map(1..10, fn x -&amp;gt; x * x end)
+[1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+iex&amp;gt; Enum.reduce(1..10, 0, &amp;amp;(&amp;amp;1+&amp;amp;2))
+55
+iex&amp;gt; 1..10 |&amp;gt; Enum.map(&amp;amp;(&amp;amp;1*&amp;amp;1)) |&amp;gt; Enum.reduce(&amp;amp;(&amp;amp;1+&amp;amp;2))
+385
+iex&amp;gt; 1..100 |&amp;gt; Stream.map(&amp;amp;(&amp;amp;1*&amp;amp;1)) |&amp;gt; Stream.filter(&amp;amp;(rem(&amp;amp;1, 2) != 0)) |&amp;gt; Enum.sum
+166650
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Elixir 也提供了列表推倒的机制，利用 for 的 filter 机制，还能方便实现一些功能。&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; for n &amp;lt;- 1..4, do: n * n
+[1, 4, 9, 16]
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;找到 n 以内满足 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a^2 + b^2 = c^2&lt;/code&gt; 的 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;{a, b, c}&lt;/code&gt; 元组：&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;defmodule Triple do
+  def pythagorean(n) when n &amp;gt; 0 do
+    for a &amp;lt;- 1..n,
+        b &amp;lt;- 1..n,
+        c &amp;lt;- 1..n,
+        a + b + c &amp;lt;= n,
+        a*a + b*b == c*c,
+        do: {a, b, c}
+  end
+end
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;异常处理&quot;&gt;异常处理&lt;/h2&gt;
+
+&lt;p&gt;Elixir 提供了 3 种错误处理机制：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Errors &amp;amp; Exceptions&lt;/li&gt;
+  &lt;li&gt;Throws&lt;/li&gt;
+  &lt;li&gt;Exits&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; try do
+...&amp;gt;   raise &quot;oops&quot;
+...&amp;gt; rescue
+...&amp;gt;   RuntimeError -&amp;gt; &quot;Error!&quot;
+...&amp;gt; end
+&quot;Error!&quot;
+
+iex&amp;gt; spawn_link fn -&amp;gt; exit(1) end
+#PID&amp;lt;0.56.0&amp;gt;
+** (EXIT from #PID&amp;lt;0.56.0&amp;gt;) 1
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;调用-erlang-代码&quot;&gt;调用 Erlang 代码&lt;/h2&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;iex&amp;gt; angle_45_deg = :math.pi() * 45.0 / 180.0
+iex&amp;gt; :math.sin(angle_45_deg)
+0.7071067811865475
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;process&quot;&gt;Process&lt;/h2&gt;
+
+&lt;p&gt;Elixir 借助 ErlangVM 实现了 Actor 模型，进程和进程之间仅通过消息通信，每个 Actor 都有一个 Mailbox ，消息总是被拷贝到 MailBox 中然后等待进程处理。这里的 Process 和操作系统的 Process 不能等同，它比操作系统的 Process 要轻量很多，可能很轻松在单机上开启几十万的 Process。&lt;/p&gt;</content><author><name></name></author><summary type="html">elixir-overview</summary></entry></feed>
